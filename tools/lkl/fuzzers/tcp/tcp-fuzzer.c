@@ -68,14 +68,14 @@ unsigned short tcp_checksum(void *b, int len) {
  *
  * extra_length: the length of the packet, gets set to 20 if less than 20 (minimum for a tcp syn packet)
  */
-void tcp_create_packet(struct tcp_header * tcp_header, size_t length) {
+void tcp_create_packet(struct tcp_header * tcp_header, size_t length, uint8_t flags) {
 	struct pseudo_header psh;
 	tcp_header->source_port = htons(12345);   // Source port
     tcp_header->dest_port = htons(9999);      // Destination port
     tcp_header->seq_number = htonl(0);          // Sequence number
     tcp_header->ack_number = htonl(0);             // Acknowledgment number
     tcp_header->data_offset = ((length / 4) << 4);                // Data offset (no options)
-    tcp_header->flags = 0x02; // SYN
+    tcp_header->flags = flags; // SYN
     tcp_header->window_size = htons(5840);    // Window size
     tcp_header->checksum = 0;               // Initial checksum
     tcp_header->urgent_pointer = 0;             // Urgent pointer
@@ -118,7 +118,7 @@ void tcp_function(unsigned char* packet, size_t length) {
 		printf("socket error (%s)\n", lkl_strerror(clientsock));
 	}
 
-	tcp_create_packet((struct tcp_header *)packet, length);
+	tcp_create_packet((struct tcp_header *)packet, length, 0x02); // SYN 0x02
 	int ret = lkl_sys_sendto(clientsock, packet, length < 20 ? 20 : length, 0,
 			 (struct lkl_sockaddr *)&server_addr,
 			 sizeof(server_addr)
@@ -131,25 +131,16 @@ void tcp_function(unsigned char* packet, size_t length) {
 	memset(recv_packet, 0, 1024);
 	int errors = 0;
 	while(errors < 1) {
-		struct lkl_pollfd pfd;
-		pfd.fd = clientsock;
-		pfd.events = LKL_POLLIN;
-		pfd.revents = 0;
-		ret = lkl_sys_poll(&pfd, 1, 1);
-		if (ret < 0) {
-			printf("poll error (%s)\n", lkl_strerror(ret));
-		}
-
 		memset(recv_packet, 0, 100);
 		ret = lkl_sys_recv(clientsock, recv_packet, sizeof(recv_packet), LKL_MSG_DONTWAIT);
 		if (ret < 0) {
-			printf("recv error (%s)\n", lkl_strerror(ret));
+			//printf("recv error (%s)\n", lkl_strerror(ret));
 			errors++;
 		} else {
-			printf("recv bytes: %d\n", ret);
+			//printf("recv bytes: %d\n", ret);
 		}
 	}
-    //pthread_join(my_thread, NULL);
+	lkl_sys_close(clientsock);
 }
 
 static int initialize_lkl(void)
@@ -162,7 +153,7 @@ static int initialize_lkl(void)
 		return -1;
 	}
 
-	ret = lkl_start_kernel("mem=50M kasan.fault=panic");
+	ret = lkl_start_kernel("mem=2048M kasan.fault=panic");
 	if (ret) {
 		printf("lkl_start_kernel failed\n");
 		lkl_cleanup();
@@ -200,11 +191,11 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size)
 	static int iter;
 	uint8_t data[60] = {0};
 
-	if (Size > sizeof(data))
-		Size = sizeof(data);
+	if (Size > 40)
+		Size = 40;
 
-	memcpy(data, Data, Size);
-	tcp_function(data, Size < 20 ? 20 : Size);
+	memcpy(data + 20, Data, Size);
+	tcp_function(data, Size + 20);
 	iter++;
 	if (iter > 1000) {
 		flush_coverage();
