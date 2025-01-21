@@ -74,7 +74,7 @@ void tcp_create_packet(struct tcp_header * tcp_header, size_t length) {
     tcp_header->dest_port = htons(9999);      // Destination port
     tcp_header->seq_number = htonl(0);          // Sequence number
     tcp_header->ack_number = htonl(0);             // Acknowledgment number
-    tcp_header->data_offset = (5 << 4);                // Data offset (no options)
+    tcp_header->data_offset = ((length / 4) << 4);                // Data offset (no options)
     tcp_header->flags = 0x02; // SYN
     tcp_header->window_size = htons(5840);    // Window size
     tcp_header->checksum = 0;               // Initial checksum
@@ -174,9 +174,15 @@ static int initialize_lkl(void)
 	return 0;
 }
 
+
+
 void flush_coverage(void)
 {
 	__llvm_profile_write_file();
+}
+
+void end_fuzzing(void) {
+	flush_coverage();
 	lkl_sys_halt();
 }
 
@@ -184,7 +190,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv)
 {
 	initialize_lkl();
 	__llvm_profile_initialize_file();
-	atexit(flush_coverage);
+	atexit(end_fuzzing);
 
 	return 0;
 }
