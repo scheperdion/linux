@@ -1,0 +1,2 @@
+tcp-fuzzer-y += tcp-fuzzer.o
+CFLAGS_tcp-fuzzer.o += -O0
