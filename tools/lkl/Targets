@@ -38,3 +38,4 @@ endif
 # LKL fuzzers
 fuzzers-y += fuzzers/hid/hid-fuzzer
 fuzzers-y += fuzzers/tcp/tcp-fuzzer
+fuzzers-y += fuzzers/wifi/wifi-fuzzer

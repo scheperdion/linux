@@ -65,20 +65,19 @@ unsigned short tcp_checksum(void *b, int len) {
 }
 
 /*
- *
- * extra_length: the length of the packet, gets set to 20 if less than 20 (minimum for a tcp syn packet)
+ * 'Create' a 'valid' packet from a stream of bytes (tcp_header)
  */
-void tcp_create_packet(struct tcp_header * tcp_header, size_t length, uint8_t flags) {
+void tcp_create_packet(struct tcp_header * tcp_header, size_t length) {
 	struct pseudo_header psh;
-	tcp_header->source_port = htons(12345);   // Source port
+	//tcp_header->source_port = htons(12345);   // Source port
     tcp_header->dest_port = htons(9999);      // Destination port
-    tcp_header->seq_number = htonl(0);          // Sequence number
-    tcp_header->ack_number = htonl(0);             // Acknowledgment number
+    //tcp_header->seq_number = htonl(0);          // Sequence number
+    //tcp_header->ack_number = htonl(0);             // Acknowledgment number
     tcp_header->data_offset = ((length / 4) << 4);                // Data offset (no options)
-    tcp_header->flags = flags; // SYN
-    tcp_header->window_size = htons(5840);    // Window size
+    //tcp_header->flags = 0x02;
+    //tcp_header->window_size = htons(5840);    // Window size
     tcp_header->checksum = 0;               // Initial checksum
-    tcp_header->urgent_pointer = 0;             // Urgent pointer
+    //tcp_header->urgent_pointer = 0;             // Urgent pointer
 
     // Pseudo header for TCP checksum
     psh.src_addr = inet_addr("127.0.0.1");
@@ -98,7 +97,7 @@ void initialize_tcp_server() {
 	int sock;
 	struct lkl_sockaddr_in address;
 	address.sin_family = LKL_AF_INET;
-	address.sin_addr.lkl_s_addr = 0x0100007f;  // Accept connections from any IP address
+	address.sin_addr.lkl_s_addr = inet_addr("127.0.0.1");
 	address.sin_port = htons(9999);
 
 	sock = lkl_sys_socket(LKL_AF_INET, LKL_SOCK_STREAM, 0);
@@ -106,30 +105,41 @@ void initialize_tcp_server() {
 	lkl_sys_listen(sock, 3);
 }
 
-void tcp_function(unsigned char* packet, size_t length) {
+size_t getpacket(unsigned char *buf, size_t length) {
+	size_t len = buf[0] & 0xff;
+	if(len < 20) len = 20;
+	if(len > 128) len = 128;
+	if(len > length) {
+		len = length;
+	}
+	return len;
+}
+
+void fuzz_tcp_syn_packet(unsigned char* packet, size_t length) {
     struct lkl_sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;  // IPv4
-    server_addr.sin_addr.lkl_s_addr = 0x0100007f;
-    server_addr.sin_port = htons(1111);
+    server_addr.sin_addr.lkl_s_addr = inet_addr("127.0.0.1");
 
     int clientsock = lkl_sys_socket(LKL_AF_INET, LKL_SOCK_RAW, LKL_IPPROTO_TCP); // IPPROTO_RAW is raw ip
 	if (clientsock < 0) {
 		printf("socket error (%s)\n", lkl_strerror(clientsock));
 	}
 
-	tcp_create_packet((struct tcp_header *)packet, length, 0x02); // SYN 0x02
-	int ret = lkl_sys_sendto(clientsock, packet, length < 20 ? 20 : length, 0,
-			 (struct lkl_sockaddr *)&server_addr,
-			 sizeof(server_addr)
-	);
+	char recv_packet[1024];
+	memset(recv_packet, 0, 1024);
+	char send_packet[1024];
+	memset(send_packet, 0, 1024);
+	int errors = 0;
+	int ret = 0;
+	unsigned char* i = packet;
+	tcp_create_packet((struct tcp_header *)send_packet, length);
+	ret = lkl_sys_sendto(clientsock, send_packet, length, 0, (struct lkl_sockaddr *)&server_addr, sizeof(server_addr));
 	if (ret < 0) {
 		printf("sendto error (%s)\n", lkl_strerror(ret));
 	}
 
-	char recv_packet[1024];
-	memset(recv_packet, 0, 1024);
-	int errors = 0;
+
 	while(errors < 1) {
 		memset(recv_packet, 0, 100);
 		ret = lkl_sys_recv(clientsock, recv_packet, sizeof(recv_packet), LKL_MSG_DONTWAIT);
@@ -145,23 +155,21 @@ void tcp_function(unsigned char* packet, size_t length) {
 
 static int initialize_lkl(void)
 {
-
 	int ret = lkl_init(&lkl_host_ops);
-
 	if (ret) {
 		printf("lkl_init failed\n");
 		return -1;
 	}
 
-	ret = lkl_start_kernel("mem=2048M kasan.fault=panic");
+	ret = lkl_start_kernel("mem=50M kasan.fault=panic");
 	if (ret) {
 		printf("lkl_start_kernel failed\n");
 		lkl_cleanup();
 		return -1;
 	}
 
-	lkl_if_up(1); // stolen from if_up test?
-	initialize_tcp_server();
+	lkl_if_up(1);                   // to enable loopback interface
+	initialize_tcp_server();        // to start the TCP server listiner inside LKL
 	return 0;
 }
 
@@ -189,13 +197,13 @@ int LLVMFuzzerInitialize(int *argc, char ***argv)
 int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size)
 {
 	static int iter;
-	uint8_t data[60] = {0};
+	uint8_t data[1024] = {0};
 
-	if (Size > 40)
-		Size = 40;
+	if (Size > 1024)
+		Size = 1024;
 
-	memcpy(data + 20, Data, Size);
-	tcp_function(data, Size + 20);
+	memcpy(data, Data, Size);
+	fuzz_tcp_syn_packet(data, Size);
 	iter++;
 	if (iter > 1000) {
 		flush_coverage();
@@ -203,12 +211,3 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size)
 	}
 	return 0;
 }
-
-//int main(int argc, char **argv) {
-//	initialize_lkl();
-//	unsigned char packet[60];
-//	memset(packet, 0x00, 60);
-//	size_t length = 60;
-//	tcp_function(packet, length);
-//	lkl_sys_halt();
-//}

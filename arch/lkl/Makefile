@@ -38,7 +38,7 @@ KBUILD_CFLAGS += -integrated-as
 KBUILD_CFLAGS += -g
 
 # Enabling libfuzzer instrumentation
-KBUILD_CFLAGS += -fsanitize=fuzzer-no-link
+#KBUILD_CFLAGS += -fsanitize=fuzzer-no-link
 
 KEEP_EH_FRAMES := true
 endif

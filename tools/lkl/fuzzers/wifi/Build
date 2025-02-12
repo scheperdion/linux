@@ -1,0 +1,2 @@
+wifi-fuzzer-y += wifi-fuzzer.o
+CFLAGS_wifi-fuzzer.o += -O0
