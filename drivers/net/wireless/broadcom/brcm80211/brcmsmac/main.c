@@ -7642,6 +7642,32 @@ static void brcms_c_recv(struct brcms_c_info *wlc, struct sk_buff *p)
  toss:
 	brcmu_pkt_buf_free_skb(p);
 }
+EXPORT_SYMBOL(brcms_c_recv);
+
+
+struct sk_buff *packet_to_skb(uint8_t *packet, size_t packet_len) {
+    struct sk_buff *skb;
+
+    // Allocate sk_buff with enough space for the packet
+    skb = alloc_skb(packet_len + NET_SKB_PAD, GFP_KERNEL);
+    if (!skb) {
+        printk(KERN_ERR "Failed to allocate sk_buff\n");
+        return NULL;
+    }
+
+    // Reserve headroom (optional, useful for alignment)
+    skb_reserve(skb, NET_SKB_PAD);
+
+    // Copy the packet data into sk_buff
+    skb_put_data(skb, packet, packet_len);
+
+    // At this point:
+    // - skb->data points to the packet
+    // - skb->len is set correctly
+
+    return skb;
+}
+EXPORT_SYMBOL(packet_to_skb);
 
 /* Process received frames */
 /*
