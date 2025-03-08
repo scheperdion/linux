@@ -24,15 +24,14 @@
 #include <lkl_host.h>
 
 #include "wifi-fuzzer.h"
-//void (*target)(struct brcms_c_info *wlc, struct sk_buff *p);
 void (*target)(void *wlc, void *p);
 void * (*packet_to_skb)(uint8_t *packet, size_t size);
 
 void set_addresses() {
 	void (*src_ptr) = &lkl_init;
-	int source_offset = 0x000000004683d0; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep lkl_init
-	int target_offset = 0x00000000c613f0; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep brcms_c_recv
-	int packet_to_skb_offset = 0x00000000c61d90; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep packet_to_skb
+	int source_offset = 0x00000000494d30; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep lkl_init
+	int target_offset = 0x00000000c4da90; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep brcms_c_recv
+	int packet_to_skb_offset = 0x00000000c4e430; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep packet_to_skb
 	target = src_ptr - source_offset + target_offset;
 	packet_to_skb = src_ptr - source_offset + packet_to_skb_offset;
 }
