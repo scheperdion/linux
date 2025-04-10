@@ -823,8 +823,18 @@ __SYSCALL(__NR_cachestat, sys_cachestat)
 #define __NR_fchmodat2 452
 __SYSCALL(__NR_fchmodat2, sys_fchmodat2)
 
+// LKL FUZZING STUFF //////////////////////////////////////////////////////////
+#define __NR_init_loaded_module 453
+__SYSCALL(__NR_init_loaded_module, sys_init_loaded_module)
+#define __NR_uninit_loaded_module 454
+__SYSCALL(__NR_uninit_loaded_module, sys_uninit_loaded_module)
+#define __NR_fuzz_trigger_irq 455
+__SYSCALL(__NR_fuzz_trigger_irq, sys_fuzz_trigger_irq)
+#define __NR_fuzz_configure_dev 456
+__SYSCALL(__NR_fuzz_configure_dev, sys_fuzz_configure_dev)
+
 #undef __NR_syscalls
-#define __NR_syscalls 453
+#define __NR_syscalls 457
 
 /*
  * 32 bit systems traditionally used different

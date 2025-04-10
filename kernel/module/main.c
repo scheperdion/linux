@@ -3364,3 +3364,216 @@ static int module_debugfs_init(void)
 }
 module_init(module_debugfs_init);
 #endif
+
+// LKL FUZZING STUFF //////////////////////////////////////////////////////////
+
+static void print_mod(struct module * mod){
+//  if(!lkl_ops->fuzz_ops->do_trace(FUZZ_TRACE_MOD)) {
+//     return;
+//  }
+  printk(KERN_NOTICE "mod->name: %s\n", mod->name);
+  printk(KERN_NOTICE "mod->mkobj->mod: %llx\n", (uint64_t)mod->mkobj.mod);
+  printk(KERN_NOTICE "mod->mkobj->drivers_dir: %llx\n", (uint64_t)mod->mkobj.drivers_dir);
+//  printk(KERN_NOTICE "mod->core_layout.base: %llx\n", (uint64_t)mod->core_layout.base);
+//  printk(KERN_NOTICE "mod->core_layout.text: %llx\n", (uint64_t)mod->core_layout.base);
+//  printk(KERN_NOTICE "mod->core_layout.size: %llx\n", (uint64_t)mod->core_layout.size);
+//  printk(KERN_NOTICE "mod->init_layout.base: %llx\n", (uint64_t)mod->init_layout.base);
+//  printk(KERN_NOTICE "mod->init_layout.text: %llx\n", (uint64_t)mod->init_layout.base);
+//  printk(KERN_NOTICE "mod->init_layout.size: %llx\n", (uint64_t)mod->init_layout.size);
+  printk(KERN_NOTICE "mod->init: %llx\n", (uint64_t)mod->init);
+#ifdef CONFIG_MODULE_UNLOAD
+  printk(KERN_NOTICE "mod->exit: %llx\n", (uint64_t)mod->exit);
+#endif
+};
+
+static long load_module_no_init(struct module *mod)
+{
+	long err = 0;
+
+	// TODO(feli): I think we don't need this, but better check
+	err = add_unformed_module(mod);
+	if (err) {
+		pr_debug("%s: %d\n", __func__, __LINE__);
+		goto out;
+	}
+
+	/* Now module is in final location, initialize linked lists, etc. */
+	err = module_unload_init(mod);
+	if (err) {
+		pr_debug("%s: %d\n", __func__, __LINE__);
+		goto out;
+	}
+
+	init_param_lock(mod);
+
+	/* Ftrace init must be called in the MODULE_STATE_UNFORMED state */
+	ftrace_module_init(mod);
+
+	/* Finally it's fully formed, ready to start executing. */
+	err = complete_formation(mod, NULL);
+	if (err) {
+		pr_debug("%s: %d\n", __func__, __LINE__);
+		goto out;
+	}
+
+	err = prepare_coming_module(mod);
+	if (err) {
+		pr_debug("%s: %d\n", __func__, __LINE__);
+		goto out;
+	}
+
+	// TODO(feli): add module param support
+	/* Module is ready to execute: parsing args may do that. */
+	//after_dashes = parse_args(mod->name, mod->args, mod->kp, mod->num_kp,
+	//			  -32768, 32767, mod, unknown_module_param_cb);
+	//if (IS_ERR(after_dashes)) {
+	//	pr_debug("%s: %d\n", __func__, __LINE__);
+	//	err = PTR_ERR(after_dashes);
+	//	goto coming_cleanup;
+	//} else if (after_dashes) {
+	//	pr_warn("%s: parameters '%s' after `--' ignored\n", mod->name,
+	//		after_dashes);
+	//}
+
+	// TODO(feli): add module sysfs support
+	/* Link in to sysfs. */
+	// Note(feli): might already be present, since we skip sysfs teardown
+	// TODO: implement this properly
+	// mod_sysfs_setup also creates kobj, so we can not remove the call
+	err = mod_sysfs_setup(mod, NULL, mod->kp, mod->num_kp);
+	if (err < 0)
+	{
+		pr_debug("%s: %d\n", __func__, __LINE__);
+		goto out;
+	}
+	trace_module_load(mod);
+
+	return 0;
+out:
+	return -EINVAL;
+}
+
+/* Free a module, remove from lists, etc. */
+// Note(feli): since all the layout pointers are zero, we do not actually
+// free anything here - that's ok
+// however this leads too module addresses not being
+// recognized properly in ksyms, etc. .. (TODO)
+static void free_module_noinit(struct module *mod)
+{
+	trace_module_free(mod);
+
+	mod_sysfs_teardown(mod);
+
+	/* We leave it in list to prevent duplicate loads, but make sure
+	 * that noone uses it while it's being deconstructed. */
+	mutex_lock(&module_mutex);
+	mod->state = MODULE_STATE_UNFORMED;
+	mutex_unlock(&module_mutex);
+
+	/* Remove dynamic debug info */
+	//ddebug_remove_module(mod->name);
+
+	/* Arch-specific cleanup. */
+	module_arch_cleanup(mod);
+
+	/* Module unload stuff */
+	module_unload_free(mod);
+
+	/* Free any allocated parameters. */
+	//destroy_params(mod->kp, mod->num_kp);
+
+	if (is_livepatch_module(mod))
+		free_module_elf(mod);
+
+	/* Now we can delete it from the lists */
+	mutex_lock(&module_mutex);
+	/* Unlink carefully: kallsyms could be walking list. */
+	list_del_rcu(&mod->list);
+	mod_tree_remove(mod);
+	/* Remove this module from bug list, this uses list_del_rcu */
+	module_bug_cleanup(mod);
+	/* Wait for RCU-sched synchronizing before releasing mod->list and buglist. */
+	synchronize_rcu();
+	mutex_unlock(&module_mutex);
+
+	/* This may be empty, but that's OK */
+	module_arch_freeing_init(mod);
+//	module_memfree(mod->init_layout.base);
+	kfree(mod->args);
+	percpu_modfree(mod);
+
+//	/* Free lock-classes; relies on the preceding sync_rcu(). */
+//	lockdep_free_key_range(mod->core_layout.base, mod->core_layout.size);
+//
+//	/* Finally, free the core (containing the module structure) */
+//	module_memfree(mod->core_layout.base);
+}
+
+
+// Note(feli): dlopen to load .ko, dlsym to get this_module
+// -> init_loaded_moduel(this_module)
+SYSCALL_DEFINE1(init_loaded_module, void*, mod_handle)
+{
+	int ret = 0;
+	struct module *mod = NULL;
+	//*new_mod_handle = NULL;
+	if(mod_handle==0) {
+		pr_err("invalid module handle\n");
+		return -EINVAL;
+	}
+	//mod = kmalloc(sizeof(*mod), GFP_KERNEL);
+	//memcpy(mod, mod_handle, sizeof(*mod));
+	mod = (struct module*)mod_handle;
+	memset(&mod->mkobj.kobj, 0, sizeof(mod->mkobj.kobj));
+	memset(&mod->mkobj, 0, sizeof(mod->mkobj));
+	print_mod(mod);
+	ret = load_module_no_init(mod);
+	if(ret != 0) {
+		pr_err("load_module_no_init  failed %d\n", ret);
+		return ret;
+	}
+	//*new_mod_handle = mod;
+	return do_init_module(mod);
+}
+
+SYSCALL_DEFINE1(uninit_loaded_module, void*, mod_handle)
+{
+	int ret, forced, flags=0;
+	struct module *mod = NULL;
+	if(mod_handle==0) {
+		pr_debug("invalid module handle\n");
+		return -EINVAL;
+	}
+	mod = (struct module*)mod_handle;
+	print_mod(mod);
+#ifdef CONFIG_MODULE_UNLOAD
+	if (mutex_lock_interruptible(&module_mutex) != 0) {
+		pr_err("could not get module mutex\n");
+		return -EINTR;
+	}
+	/* Stop the machine so refcounts can't move and disable module. */
+	ret = try_stop_module(mod, flags, &forced);
+	if (ret != 0) {
+		pr_err("could not stop module\n");
+		goto out;
+	}
+
+	mutex_unlock(&module_mutex);
+	/* Final destruction now no one is using it. */
+	if (mod->exit != NULL) {
+		mod->exit();
+	} else {
+		pr_err("%s WARNING no mod->exit %llx\n", __FUNCTION__, (uint64_t)mod->exit);
+	}
+	blocking_notifier_call_chain(&module_notify_list, MODULE_STATE_GOING,
+				     mod);
+	klp_module_going(mod);
+
+	async_synchronize_full();
+	free_module_noinit(mod);
+#endif
+out:
+	mutex_unlock(&module_mutex);
+	//kfree(mod_handle);
+	return ret;
+}
