@@ -1166,7 +1166,14 @@ asmlinkage long sys_old_mmap(struct mmap_arg_struct __user *arg);
  */
 asmlinkage long sys_ni_syscall(void);
 
+// LKL FUZZING STUFF //////////////////////////////////////////////////////////
+asmlinkage long sys_init_loaded_module(void* mod_handle);
+asmlinkage long sys_uninit_loaded_module(void* mod_handle);
+asmlinkage long sys_fuzz_trigger_irq(int);
+asmlinkage long sys_fuzz_configure_dev(unsigned int type, void __user *uconf);
+
 #endif /* CONFIG_ARCH_HAS_SYSCALL_WRAPPER */
+
 
 asmlinkage long sys_ni_posix_timers(void);
 

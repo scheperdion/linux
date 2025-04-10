@@ -24,17 +24,26 @@
 #include <lkl_host.h>
 
 #include "wifi-fuzzer.h"
-void (*target)(void *wlc, void *p);
+void (*target)(void *wlc, void *p); // (struct brcms_c_info *wlc, struct sk_buff *p)
 void * (*packet_to_skb)(uint8_t *packet, size_t size);
+int (*brcms_bcma_probe)(void* dev);  // (struct bcma_device *pdev)
 
 void set_addresses() {
 	void (*src_ptr) = &lkl_init;
-	int source_offset = 0x00000000494d30; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep lkl_init
-	int target_offset = 0x00000000c4da90; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep brcms_c_recv
-	int packet_to_skb_offset = 0x00000000c4e430; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep packet_to_skb
+	int source_offset = 0x0000000050ade0; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep lkl_init
+	int target_offset = 0x00000000c0e8e0; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep brcms_c_recv
+	int packet_to_skb_offset = 0x00000000c0f280; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep packet_to_skb
+	int brcms_bcma_probe_offset = 0x00000000bf03f0; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep brcms_bcma_probe
 	target = src_ptr - source_offset + target_offset;
 	packet_to_skb = src_ptr - source_offset + packet_to_skb_offset;
+	brcms_bcma_probe = src_ptr - source_offset + brcms_bcma_probe_offset;
 }
+
+/**
+* struct brcms_c_info *wlc
+* static int brcms_bcma_probe(struct bcma_device *pdev)
+tools/lkl/fuzzers/wifi/wifi-fuzzer tools/lkl/fuzzers/wifi/seeds -max_len=65530 -rss_limit_mb=4096
+*/
 
 void donothing() {
 	return;
@@ -43,52 +52,48 @@ void donothing() {
 
 static void fuzz_wifi(const uint8_t *data, size_t size) {
 	char parsed[6 + size];
-	char wlc_data[512] = { 0 };
-	for (int i = 0; i < 512; i++) {wlc_data[i] = i;}
+	char wlc_data[4096] = { 0 };
+	for (int i = 0; i < 1024; i++) {((int*) wlc_data)[i] = i;}
 
-	// wlc_hw
-	long *a = (long*) (wlc_data + 0x10);
-	*a = (long) ((char*)&wlc_data + 0x18);
+	// device in dev_driver_string?
+	long *b = (long*) wlc_data + 0xf;
+	*b = (long) ((long*)&wlc_data + 0x10);
 
-	// core1
-	long *b = (long*) (wlc_data + 0x68);
-	*b = (long) ((char*)&wlc_data + 0x70);
+	// set_dev_info ?
+	long *c = (long*) wlc_data + 0x2f;
+	*c = (long) ((long*)&wlc_data + 0x30);
 
-	// first value
-	long *c = (long*) (wlc_data);
-	*c = (long) ((char*)&wlc_data + 0x8);
+	// set_dev_info ?
+	long *d = (long*) wlc_data + 0x30;
+	*d = (long) "hello world";
 
-	// core2
-	long *d = (long*) (wlc_data + 0x80);
-	*d = (long) ((char*)&wlc_data + 0x88);
+	// set BCMA_MANUF_BCM and BCMA_CORE_80211
+	long *e = (long*) wlc_data + 0x1;
+	*e = (long) 0x081204bf;
 
-	// second value
-	long *e = (long*) (wlc_data + 0x88);
-	*e = (long) ((char*)&wlc_data + 0x90);
+	// fix set_dev_info again
+	long *f = (long*) wlc_data + 0xc;
+	*f = (long) "654321";
 
-	// core3
-	long *f = (long*) (wlc_data + 0x38);
-	*f = (long) ((char*)&wlc_data + 0x40);
+	// fix set_dev_info again
+	long *g = (long*) wlc_data + 0x10;
+	*g = (long) "0987";
 
-	// third value
-	long *g = (long*) (wlc_data + 0xa0);
-	*g = (long) ((char*)&wlc_data + 0xa8);
+	// set_dev_info ?
+	long *h = (long*) wlc_data;
+	*h = (long) ((long*)&wlc_data + 64);
+	/*
+[#5] 0x555555d6891a → dev_driver_string(dev=0x7fffffffd070)
+[#6] 0x555555d6891a → __dev_printk(level=<optimized out>, dev=0x7fffffffd070, vaf=0x7fffffffcf60)
+[#7] 0x5555560e78c7 → _dev_info(dev=0x7fffffffd070, fmt=0x555556470f20 <str> "mfg %x core %x rev %d class %d irq %d\n")
+[#8] 0x55555614430f → brcms_bcma_probe(pdev=0x7fffffffd060)
+[#9] 0x555555a3082b → fuzz_wifi
 
-	// fourth value (call r14??)
-	long *h = (long*) (wlc_data + 0xb8);
-	*h = (long) &donothing;
+	brcms_bcma_probe+200
+	brcms_bcma_probe+0x0ef
+* */
 
-	// fourth value
-	long *i = (long*) (wlc_data + 0x98);
-	*i = (long) ((char*)&wlc_data + 0x100);
-
-	// wlc_phy pih #1
-	long *j = (long*) (wlc_data + 0x28 + 0x100);
-	*j = (long) ((char*)&wlc_data + 0x30);
-
-	// wlc_phy pih #2
-	long *k = (long*) (wlc_data + 0x50);
-	*k = (long) ((char*)&wlc_data + 0x58);
+	brcms_bcma_probe(wlc_data);
 
 	memcpy(parsed+6, data, size);
 	target(wlc_data, packet_to_skb(data, size));

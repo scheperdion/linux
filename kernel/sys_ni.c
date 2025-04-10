@@ -373,3 +373,10 @@ COND_SYSCALL(setuid16);
 
 /* restartable sequence */
 COND_SYSCALL(rseq);
+
+// LKL FUZZING STUFF //////////////////////////////////////////////////////////
+COND_SYSCALL(init_loaded_module);
+COND_SYSCALL(uninit_loaded_module);
+COND_SYSCALL(fuzz_trigger_irq);
+COND_SYSCALL(fuzz_configure_dev);
+

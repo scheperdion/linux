@@ -7642,7 +7642,6 @@ static void brcms_c_recv(struct brcms_c_info *wlc, struct sk_buff *p)
  toss:
 	brcmu_pkt_buf_free_skb(p);
 }
-EXPORT_SYMBOL(brcms_c_recv);
 
 
 struct sk_buff *packet_to_skb(uint8_t *packet, size_t packet_len) {
