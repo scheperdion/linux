@@ -584,6 +584,12 @@ KBUILD_LDFLAGS_MODULE :=
 KBUILD_LDFLAGS :=
 CLANG_FLAGS :=
 
+ifdef FUZZ
+KBUILD_CFLAGS_MODULE   +=  -fsanitize=fuzzer-no-link -fsanitize=address -fsanitize-recover=address
+KBUILD_AFLAGS_MODULE   +=  -fsanitize=fuzzer-no-link -fsanitize=address -fsanitize-recover=address
+KBUILD_LDFLAGS_MODULE  +=  -fsanitize=fuzzer-no-link -fsanitize=address -fsanitize-recover=address
+endif
+
 ifeq ($(KBUILD_CLIPPY),1)
 	RUSTC_OR_CLIPPY_QUIET := CLIPPY
 	RUSTC_OR_CLIPPY = $(CLIPPY_DRIVER)
