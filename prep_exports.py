@@ -11,7 +11,7 @@ exports = set()
 with open(sys.argv[1], "r") as fd:
     for l in fd.readlines():
         addr, typ, name = l.split()
-        if "__ksymtab" in name : # and "__asan" not in name
+        if "__ksymtab" in name and "__asan" not in name: #
             exports.add(name.replace("__ksymtab_", ""))
         if "dfs" in name:
             dfs_funcs.add(name.replace("dfs$", ""))

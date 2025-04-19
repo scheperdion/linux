@@ -40,7 +40,7 @@ struct ieee80211_elems_parse_params {
 			   struct cfg80211_bss *bss)
 */
 void* (*target)(struct ieee80211_elems_parse_params *params);
-void (*kfree)(void* ptr);
+//void (*kfree)(void* ptr);
 
 void set_addresses() {
 	void (*src_ptr) = &lkl_init;
@@ -48,7 +48,7 @@ void set_addresses() {
 	int target_offset = 0x00000000d76810; // nm tools/lkl/fuzzers/arbitraryfunction/arbitraryfunction-fuzzer | grep ieee802_11_parse_elems_full
 	int kfree__offset = 0x000000005f9680; // nm tools/lkl/fuzzers/arbitraryfunction/arbitraryfunction-fuzzer | grep kfree
 	target = src_ptr - source_offset + target_offset;
-	kfree = src_ptr - source_offset + kfree__offset;
+	//kfree = src_ptr - source_offset + kfree__offset;
 }
 
 static void fuzz_arbitrary_function(const uint8_t *data, size_t size) {
@@ -62,7 +62,7 @@ static void fuzz_arbitrary_function(const uint8_t *data, size_t size) {
 		.link_id = -1,
 	};
 	void* ptr = target(&params);
-	kfree(ptr);
+	//kfree(ptr);
 }
 
 static int initialize_lkl(void)

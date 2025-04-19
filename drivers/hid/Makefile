@@ -2,7 +2,7 @@
 #
 # Makefile for the HID driver
 #
-KBUILD_CFLAGS += -fsanitize=fuzzer-no-link
+#KBUILD_CFLAGS += -fsanitize=fuzzer-no-link
 hid-y			:= hid-core.o hid-input.o hid-quirks.o
 hid-$(CONFIG_DEBUG_FS)		+= hid-debug.o
 

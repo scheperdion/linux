@@ -25,17 +25,17 @@
 
 #include "wifi-fuzzer.h"
 void (*target)(void *wlc, void *p); // (struct brcms_c_info *wlc, struct sk_buff *p)
-void * (*packet_to_skb)(uint8_t *packet, size_t size);
+//void * (*packet_to_skb)(uint8_t *packet, size_t size);
 int (*brcms_bcma_probe)(void* dev);  // (struct bcma_device *pdev)
 
 void set_addresses() {
 	void (*src_ptr) = &lkl_init;
 	int source_offset = 0x0000000050ade0; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep lkl_init
 	int target_offset = 0x00000000c0e8e0; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep brcms_c_recv
-	int packet_to_skb_offset = 0x00000000c0f280; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep packet_to_skb
+	//int packet_to_skb_offset = 0x00000000c0f280; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep packet_to_skb
 	int brcms_bcma_probe_offset = 0x00000000bf03f0; // nm tools/lkl/fuzzers/wifi/wifi-fuzzer | grep brcms_bcma_probe
 	target = src_ptr - source_offset + target_offset;
-	packet_to_skb = src_ptr - source_offset + packet_to_skb_offset;
+	//packet_to_skb = src_ptr - source_offset + packet_to_skb_offset;
 	brcms_bcma_probe = src_ptr - source_offset + brcms_bcma_probe_offset;
 }
 
@@ -96,7 +96,7 @@ static void fuzz_wifi(const uint8_t *data, size_t size) {
 	brcms_bcma_probe(wlc_data);
 
 	memcpy(parsed+6, data, size);
-	target(wlc_data, packet_to_skb(data, size));
+	//target(wlc_data, packet_to_skb(data, size));
 }
 static int initialize_lkl(void)
 {

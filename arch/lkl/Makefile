@@ -69,7 +69,7 @@ all: lkl.o arch/lkl/include/generated/uapi/asm/syscall_defs.h
 # Note(feli): see comment in prep_exports.py
 lkl.o: vmlinux
 	python3 prep_exports.py System.map > lkl_mod_exports # --keep-global-symbols=lkl_mod_exports
-	$(OBJCOPY) $(if $(KEEP_EH_FRAMES),,-R .eh_frame) -R .syscall_defs $(foreach sym,$(LKL_ENTRY_POINTS),-G$(prefix)$(sym)) --prefix-symbols=$(prefix) --keep-global-symbols=lkl_mod_exports vmlinux lkl.o
+	$(OBJCOPY) $(if $(KEEP_EH_FRAMES),,-R .eh_frame) -R .syscall_defs $(foreach sym,$(LKL_ENTRY_POINTS),-G$(prefix)$(sym)) --prefix-symbols=$(prefix) vmlinux lkl.o
 
 arch/lkl/include/generated/uapi/asm/syscall_defs.h: vmlinux
 	$(OBJCOPY) -j .syscall_defs -O binary --set-section-flags .syscall_defs=alloc $< $@
