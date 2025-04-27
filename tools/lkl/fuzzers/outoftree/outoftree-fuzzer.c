@@ -39,7 +39,8 @@ static int load_module(char* ko_path, char* arguments) {
 //	}
 //	return ret;
      printf("Loading mod dependency %s\n", ko_path);
-      void* dep_module_handle = dlopen(ko_path, RTLD_GLOBAL | RTLD_NOW);
+      void* dep_module_handle = dlopen(ko_path, RTLD_GLOBAL | RTLD_LAZY);
+
       if (!dep_module_handle) {
          printf("Error loading module dependency %s: %s\n", ko_path, dlerror());
          return -1;

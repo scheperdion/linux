@@ -1,2 +1,3 @@
 outoftree-fuzzer-y += outoftree-fuzzer.o
 CFLAGS_outoftree-fuzzer.o += -O0
+
