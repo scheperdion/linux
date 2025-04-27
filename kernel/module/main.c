@@ -3512,7 +3512,7 @@ static void free_module_noinit(struct module *mod)
 
 // Note(feli): dlopen to load .ko, dlsym to get this_module
 // -> init_loaded_moduel(this_module)
-SYSCALL_DEFINE1(init_loaded_module, void*, mod_handle)
+SYSCALL_DEFINE2(init_loaded_module, void*, mod_handle, void*, init_handle)
 {
 	int ret = 0;
 	struct module *mod = NULL;
@@ -3524,15 +3524,17 @@ SYSCALL_DEFINE1(init_loaded_module, void*, mod_handle)
 	//mod = kmalloc(sizeof(*mod), GFP_KERNEL);
 	//memcpy(mod, mod_handle, sizeof(*mod));
 	mod = (struct module*)mod_handle;
+	mod->init = init_handle;
+	print_mod(mod);
 	memset(&mod->mkobj.kobj, 0, sizeof(mod->mkobj.kobj));
 	memset(&mod->mkobj, 0, sizeof(mod->mkobj));
-	print_mod(mod);
 	ret = load_module_no_init(mod);
 	if(ret != 0) {
 		pr_err("load_module_no_init  failed %d\n", ret);
 		return ret;
 	}
 	//*new_mod_handle = mod;
+	print_mod(mod);
 	return do_init_module(mod);
 }
 

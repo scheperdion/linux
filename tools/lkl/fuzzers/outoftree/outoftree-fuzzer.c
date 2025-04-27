@@ -31,14 +31,7 @@ static void fuzz_arbitrary_function(const uint8_t *data, size_t size) {
 }
 
 static int load_module(char* ko_path, char* arguments) {
-//	int fd = open(ko_path, O_RDONLY);
-//	int ret = lkl_sys_finit_module(fd, arguments, 0);
-//	if(ret != 0) {
-//		printf("Error initializing module dependency %s (%d)\n", ko_path, ret);
-//		perror("finit_module");
-//	}
-//	return ret;
-     printf("Loading mod dependency %s\n", ko_path);
+      printf("Loading mod dependency %s\n", ko_path);
       void* dep_module_handle = dlopen(ko_path, RTLD_GLOBAL | RTLD_LAZY);
 
       if (!dep_module_handle) {
@@ -50,7 +43,9 @@ static int load_module(char* ko_path, char* arguments) {
          printf("Error resolving __this_module for %s: %s\n", ko_path, dlerror());
          return -1;
       }
-      int err = lkl_sys_init_loaded_module(this_module_dep);
+	  // Note(dion) fixup the init function that gets set to __GI_init_module by dlopen incorectly
+	  void* init_handle = dlsym(dep_module_handle, "init_module");
+      int err = lkl_sys_init_loaded_module(this_module_dep, init_handle);
       if(err!=0) {
          printf("Error initializing module dependency %s\n", ko_path);
       }
