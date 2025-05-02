@@ -64,6 +64,12 @@ core-y += arch/lkl/kernel/
 core-y += arch/lkl/mm/
 core-y += arch/lkl/drivers/
 
+ifdef FUZZ
+KBUILD_CFLAGS_MODULE   +=  -fPIC -fsanitize=fuzzer-no-link #-fsanitize=address -fsanitize-recover=address
+#KBUILD_AFLAGS_MODULE   +=  -fsanitize=fuzzer-no-link #-fsanitize=address -fsanitize-recover=address
+#KBUILD_LDFLAGS_MODULE  +=  -fsanitize=fuzzer-no-link #-fsanitize=address -fsanitize-recover=address
+endif
+
 all: lkl.o arch/lkl/include/generated/uapi/asm/syscall_defs.h
 
 # Note(feli): see comment in prep_exports.py

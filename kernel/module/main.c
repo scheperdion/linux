@@ -3525,7 +3525,6 @@ SYSCALL_DEFINE2(init_loaded_module, void*, mod_handle, void*, init_handle)
 	//memcpy(mod, mod_handle, sizeof(*mod));
 	mod = (struct module*)mod_handle;
 	mod->init = init_handle;
-	print_mod(mod);
 	memset(&mod->mkobj.kobj, 0, sizeof(mod->mkobj.kobj));
 	memset(&mod->mkobj, 0, sizeof(mod->mkobj));
 	ret = load_module_no_init(mod);

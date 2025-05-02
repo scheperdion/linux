@@ -1,0 +1,3 @@
+0x00000000	__sancov_lowest_stack	module	EXPORT_SYMBOL	
+0x00000000	__sanitizer_cov_8bit_counters_init	module	EXPORT_SYMBOL	
+0x00000000	__sanitizer_cov_pcs_init	module	EXPORT_SYMBOL	

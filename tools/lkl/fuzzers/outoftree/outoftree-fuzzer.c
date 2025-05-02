@@ -78,7 +78,7 @@ void flush_coverage(void)
 
 void end_fuzzing(void) {
 	flush_coverage();
-	lkl_sys_halt();
+	//lkl_sys_halt();
 }
 
 int LLVMFuzzerInitialize(int *argc, char ***argv)
