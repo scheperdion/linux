@@ -27,7 +27,12 @@
 
 
 static void fuzz_arbitrary_function(const uint8_t *data, size_t size) {
-	sleep(1000);
+	int fd = lkl_sys_open("/dev/babel", O_RDWR, 0);
+	if (fd < 0) {
+		printf("Failed to open device...");
+	}
+	int ret = lkl_sys_write(fd, data, size);
+	lkl_sys_close(fd);
 }
 
 static int load_module(char* ko_path, char* arguments) {
@@ -66,6 +71,18 @@ static int initialize_lkl(void)
 		lkl_cleanup();
 		return -1;
 	}
+	lkl_mount_fs("sysfs");
+	lkl_mount_fs("proc");
+	lkl_mount_fs("dev");
+
+	dev_t dev = makedev(251, 0);
+	int mknod_result = lkl_sys_mknodat(AT_FDCWD, "/dev/babel",
+		S_IFCHR | 0600 /* S_IRUSR | S_IWUSR */, dev);
+
+	if (mknod_result != 0) {
+		printf("Create device file failed\n");
+		return -1;
+	}
 	return 0;
 }
 
@@ -84,7 +101,7 @@ void end_fuzzing(void) {
 int LLVMFuzzerInitialize(int *argc, char ***argv)
 {
 	initialize_lkl();
-	load_module(argv[0][1], argv[0][2]);
+	load_module(argv[0][argc[0]-2], argv[0][argc[0]-1]);
 	__llvm_profile_initialize_file();
 	atexit(end_fuzzing);
 
