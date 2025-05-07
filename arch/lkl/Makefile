@@ -38,7 +38,7 @@ KBUILD_CFLAGS += -integrated-as
 KBUILD_CFLAGS += -g
 
 # Enabling libfuzzer instrumentation
-KBUILD_CFLAGS += -fsanitize=fuzzer-no-link
+#KBUILD_CFLAGS += -fsanitize=fuzzer-no-link
 
 KEEP_EH_FRAMES := true
 endif
@@ -64,10 +64,18 @@ core-y += arch/lkl/kernel/
 core-y += arch/lkl/mm/
 core-y += arch/lkl/drivers/
 
+ifdef FUZZ
+KBUILD_CFLAGS_MODULE   +=  -fPIC -fsanitize=fuzzer-no-link #-fsanitize=address -fsanitize-recover=address
+#KBUILD_AFLAGS_MODULE   +=  -fsanitize=fuzzer-no-link #-fsanitize=address -fsanitize-recover=address
+#KBUILD_LDFLAGS_MODULE  +=  -fsanitize=fuzzer-no-link #-fsanitize=address -fsanitize-recover=address
+endif
+
 all: lkl.o arch/lkl/include/generated/uapi/asm/syscall_defs.h
 
+# Note(feli): see comment in prep_exports.py
 lkl.o: vmlinux
-	$(OBJCOPY) $(if $(KEEP_EH_FRAMES),,-R .eh_frame) -R .syscall_defs $(foreach sym,$(LKL_ENTRY_POINTS),-G$(prefix)$(sym)) --prefix-symbols=$(prefix) vmlinux lkl.o
+	python3 prep_exports.py System.map > lkl_mod_exports # --keep-global-symbols=lkl_mod_exports
+	$(OBJCOPY) $(if $(KEEP_EH_FRAMES),,-R .eh_frame) -R .syscall_defs $(foreach sym,$(LKL_ENTRY_POINTS),-G$(prefix)$(sym)) --prefix-symbols=$(prefix) --keep-global-symbols=lkl_mod_exports vmlinux lkl.o
 
 arch/lkl/include/generated/uapi/asm/syscall_defs.h: vmlinux
 	$(OBJCOPY) -j .syscall_defs -O binary --set-section-flags .syscall_defs=alloc $< $@

@@ -1,0 +1,2 @@
+arbitraryfunction-fuzzer-y += arbitraryfunction-fuzzer.o
+CFLAGS_arbitraryfunction-fuzzer.o += -O0

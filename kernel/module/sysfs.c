@@ -396,8 +396,11 @@ int mod_sysfs_setup(struct module *mod,
 	if (err)
 		goto out_unreg_modinfo_attrs;
 
-	add_sect_attrs(mod, info);
-	add_notes_attrs(mod, info);
+	// FIXME(feli): setup info section properly
+	if(info != NULL) {
+		add_sect_attrs(mod, info);
+		add_notes_attrs(mod, info);
+	}
 
 	return 0;
 

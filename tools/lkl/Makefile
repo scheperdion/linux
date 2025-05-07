@@ -147,7 +147,8 @@ run-tests:
 	./tests/run.py $(tests)
 
 # Enable libFuzzer fuzzing instrumentation for the LKL fuzzers
-$(OUTPUT)fuzzers/%$(EXESUF): LDFLAGS += -fsanitize=fuzzer --coverage
+# Enable the kernel objects loaded by dlopen to find the kernel symbols exported
+$(OUTPUT)fuzzers/%$(EXESUF): LDFLAGS += -fsanitize=fuzzer --coverage -Wl,--export-dynamic
 
 FUZZ_TARGETS := $(fuzzers-y:%=$(OUTPUT)%$(EXESUF))
 fuzzers: $(FUZZ_TARGETS)

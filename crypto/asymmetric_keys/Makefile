@@ -2,7 +2,7 @@
 #
 # Makefile for asymmetric cryptographic keys
 #
-
+#KBUILD_CFLAGS += -fsanitize=fuzzer-no-link
 obj-$(CONFIG_ASYMMETRIC_KEY_TYPE) += asymmetric_keys.o
 
 asymmetric_keys-y := \

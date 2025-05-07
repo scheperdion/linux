@@ -6,6 +6,35 @@
 #include <asm/host_ops.h>
 
 /* use __mem* names to avoid conflict with KASAN's mem* functions. */
+#define __HAVE_ARCH_MEMMOVE
+/**
+ * memmove - Copy one area of memory to another
+ * @dest: Where to copy to
+ * @src: Where to copy from
+ * @count: The size of the area.
+ *
+ * Unlike memcpy(), memmove() copes with overlapping areas.
+ */
+static inline void *__memmove(void *dest, const void *src, size_t count)
+{
+	char *tmp;
+	const char *s;
+
+	if (dest <= src) {
+		tmp = dest;
+		s = src;
+		while (count--)
+			*tmp++ = *s++;
+	} else {
+		tmp = dest;
+		tmp += count;
+		s = src;
+		s += count;
+		while (count--)
+			*--tmp = *--s;
+	}
+	return dest;
+}
 
 #define __HAVE_ARCH_MEMCPY
 static inline void *__memcpy(void *dest, const void *src, size_t count)
@@ -38,6 +67,7 @@ static inline void *__memset(void *s, int c, size_t count)
 	return s;
 }
 
+#define memmove(dest, src, count) __memmove(dest, src, count)
 #define memcpy(dst, src, len) __memcpy(dst, src, len)
 #define memset(s, c, n) __memset(s, c, n)
 
@@ -55,10 +85,12 @@ static inline void *__memset(void *s, int c, size_t count)
 
 #else /* __SANITIZE_ADDRESS__ */
 
+#undef memmove
 #undef memcpy
 #undef memset
 extern void *memset(void *dst, int c, __kernel_size_t count);
 extern void *memcpy(void *dst, const void *src, __kernel_size_t count);
+extern void *memmove(void *dest, const void *src, __kernel_size_t count);
 
 #endif /* __SANITIZE_ADDRESS__ */
 
