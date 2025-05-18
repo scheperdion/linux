@@ -2,9 +2,9 @@ import sys
 
 # python prep_exports.py System.map > exports
 blacklist = ["bcmp", "memcmp", "strcasecmp", "strncasecmp", "strstr", "strncmp", "strcmp", "strlen"]
-whitelist = ["__sancov_lowest_stack", "__sanitizer_cov_8bit_counters_init", "__sanitizer_cov_pcs_init"]
+whitelist = ["__sancov_lowest_stack", "__sanitizer_cov_8bit_counters_init", "__sanitizer_cov_pcs_init", "_current_thread_info", "usb_register_driver"]
 
-# this helper script extracts all exportet symbols from System.map
+# this helper script extracts all exported symbols from System.map
 # and creates an export file to be used for objcpy
 # this is neccessary when loading modules since vanilla lkl
 # does not export all neccassary symbols
