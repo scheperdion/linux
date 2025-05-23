@@ -26,10 +26,89 @@
 #include "outoftree-fuzzer.h"
 
 void* MODULE_HANDLE = NULL;
+int RAW_GADGET_FD = -1;
+int FAILURE_EXIT = 1;
+#include "rawgadgethelper.c"
+#include "realtek.c"
+
+void load_raw_gadget() {
+	char buffer[65535];
+	int fd2 = lkl_sys_open("/proc/misc", O_RDONLY, 0);
+	lkl_sys_read(fd2, buffer, sizeof(buffer));
+	printf("%s\n", buffer);
+
+	/* 1. Open the control interface */
+	int fd = lkl_sys_open("/dev/raw-gadget", O_RDWR, 0);
+	if(fd < 0) {
+		printf("Failed to open /dev/raw-gadget\n");
+		return;
+	}
+
+	/* 2	. Tell the kernel which UDC (dummy_hcd) we attach to */
+	struct usb_raw_init init = {
+		.driver_name = "dummy_udc",
+	    .device_name  = "dummy_udc.0",
+    	.speed     = 3, // USB_SPEED_HIGH
+	};
+	int ret = lkl_sys_ioctl(fd, USB_RAW_IOCTL_INIT, (long)&init);
+	if(ret < 0) {
+		printf("ioctl INIT failed %d\n", ret);
+		return;
+	}
+	ret = lkl_sys_ioctl(fd, USB_RAW_IOCTL_RUN, 0x0);
+	if(ret < 0) {
+		printf("ioctl RUN failed %d\n", ret);
+		return;
+	}
+//		usb_raw_init(fd, USB_SPEED_HIGH, driver, device);
+//	usb_raw_run(fd);
+
+	ep0_loop(fd);
+}
+
+static int USB_isconnected() {
+    if(FAILURE_EXIT > 0) {
+	    lkl_sys_close(RAW_GADGET_FD);
+	    RAW_GADGET_FD = -1;
+	    return 0;
+	}
+	return 1;
+}
+
+static void USB_connect() {
+	/* 1. Open the control interface */
+	int fd = lkl_sys_open("/dev/raw-gadget", O_RDWR, 0);
+	if(fd < 0) {
+		printf("Failed to open /dev/raw-gadget\n");
+		return;
+	}
+
+	/* 2	. Tell the kernel which UDC (dummy_hcd) we attach to */
+	struct usb_raw_init init = {
+		.driver_name = "dummy_udc",
+	    .device_name  = "dummy_udc.0",
+    	.speed     = 3, // USB_SPEED_HIGH
+	};
+	int ret = lkl_sys_ioctl(fd, USB_RAW_IOCTL_INIT, (long)&init);
+	if(ret < 0) {
+		printf("ioctl INIT failed %d\n", ret);
+		return;
+	}
+	ret = lkl_sys_ioctl(fd, USB_RAW_IOCTL_RUN, 0x0);
+	if(ret < 0) {
+		printf("ioctl RUN failed %d\n", ret);
+		return;
+	}
+	RAW_GADGET_FD = fd;
+	FAILURE_EXIT = 0;
+}
+
 
 static void fuzz_arbitrary_function(const uint8_t *data, size_t size) {
-	sleep(2);
+	sleep(1);
 }
+
+
 
 static int load_module(char* ko_path, char* arguments) {
       printf("Loading mod dependency %s\n", ko_path);
@@ -149,56 +228,6 @@ static int initialize_lkl(void)
 	return 0;
 }
 
-#include "rawgadgethelper.c"
-
-void load_raw_gadget() {
-	char buffer[65535];
-	int fd2 = lkl_sys_open("/proc/misc", O_RDONLY, 0);
-	lkl_sys_read(fd2, buffer, sizeof(buffer));
-	printf("%s\n", buffer);
-
-	/* 1. Open the control interface */
-	int fd = lkl_sys_open("/dev/raw-gadget", O_RDWR, 0);
-	if(fd < 0) {
-		printf("Failed to open /dev/raw-gadget\n");
-		return;
-	}
-
-	/* 2	. Tell the kernel which UDC (dummy_hcd) we attach to */
-	struct usb_raw_init init = {
-		.driver_name = "dummy_udc",
-	    .device_name  = "dummy_udc.0",
-    	.speed     = 3, // USB_SPEED_HIGH
-	};
-	int ret = lkl_sys_ioctl(fd, USB_RAW_IOCTL_INIT, (long)&init);
-	if(ret < 0) {
-		printf("ioctl INIT failed %d\n", ret);
-		return;
-	}
-	ret = lkl_sys_ioctl(fd, USB_RAW_IOCTL_RUN, 0x0);
-	if(ret < 0) {
-		printf("ioctl RUN failed %d\n", ret);
-		return;
-	}
-	struct usb_raw_event event = {};
-//		usb_raw_init(fd, USB_SPEED_HIGH, driver, device);
-//	usb_raw_run(fd);
-
-	ep0_loop(fd);
-//	while(true) {
-//		ret = lkl_sys_ioctl(fd, USB_RAW_IOCTL_EVENT_FETCH, (long)&event);
-//		if(ret < 0) {
-//			printf("ioctl FETCH failed %d\n", ret);
-//			return;
-//		}
-//		log_event(&event);
-//		if (event.type == USB_RAW_EVENT_CONNECT) {
-//			printf("COnnect!\n");
-//			process_eps_info(fd);
-//			continue;
-//		}
-//	}
-}
 
 
 

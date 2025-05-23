@@ -69,6 +69,11 @@ struct usb_raw_event {
 	__u8		data[];
 };
 
+struct usb_string {
+	__u8			id;
+	const char		*s;
+};
+
 struct usb_raw_ep_io {
 	__u16		ep;
 	__u16		flags;
@@ -128,8 +133,8 @@ struct usb_raw_eps_info {
 int usb_raw_open() {
 	int fd = open("/dev/raw-gadget", O_RDWR);
 	if (fd < 0) {
-		perror("open()");
-		exit(EXIT_FAILURE);
+		printf("open()");
+		FAILURE_EXIT = 1;
 	}
 	return fd;
 }
@@ -142,32 +147,32 @@ void usb_raw_init(int fd, enum usb_device_speed speed,
 	arg.speed = speed;
 	int rv = lkl_sys_ioctl(fd, USB_RAW_IOCTL_INIT, (long) &arg);
 	if (rv < 0) {
-		perror("lkl_sys_ioctl(USB_RAW_IOCTL_INIT)");
-		exit(EXIT_FAILURE);
+		printf("lkl_sys_ioctl(USB_RAW_IOCTL_INIT)");
+		FAILURE_EXIT = 1;
 	}
 }
 
 void usb_raw_run(int fd) {
 	int rv = lkl_sys_ioctl(fd, USB_RAW_IOCTL_RUN, 0);
 	if (rv < 0) {
-		perror("lkl_sys_ioctl(USB_RAW_IOCTL_RUN)");
-		exit(EXIT_FAILURE);
+		printf("lkl_sys_ioctl(USB_RAW_IOCTL_RUN)");
+		FAILURE_EXIT = 1;
 	}
 }
 
 void usb_raw_event_fetch(int fd, struct usb_raw_event *event) {
 	int rv = lkl_sys_ioctl(fd, USB_RAW_IOCTL_EVENT_FETCH, (long) event);
 	if (rv < 0) {
-		perror("lkl_sys_ioctl(USB_RAW_IOCTL_EVENT_FETCH)");
-		exit(EXIT_FAILURE);
+		printf("lkl_sys_ioctl(USB_RAW_IOCTL_EVENT_FETCH)");
+		FAILURE_EXIT = 1;
 	}
 }
 
 int usb_raw_ep0_read(int fd, struct usb_raw_ep_io *io) {
 	int rv = lkl_sys_ioctl(fd, USB_RAW_IOCTL_EP0_READ, (long)io);
 	if (rv < 0) {
-		perror("lkl_sys_ioctl(USB_RAW_IOCTL_EP0_READ)");
-		exit(EXIT_FAILURE);
+		printf("lkl_sys_ioctl(USB_RAW_IOCTL_EP0_READ)");
+		FAILURE_EXIT = 1;
 	}
 	return rv;
 }
@@ -175,8 +180,8 @@ int usb_raw_ep0_read(int fd, struct usb_raw_ep_io *io) {
 int usb_raw_ep0_write(int fd, struct usb_raw_ep_io *io) {
 	int rv = lkl_sys_ioctl(fd, USB_RAW_IOCTL_EP0_WRITE, (long)io);
 	if (rv < 0) {
-		perror("lkl_sys_ioctl(USB_RAW_IOCTL_EP0_WRITE)");
-		exit(EXIT_FAILURE);
+		printf("lkl_sys_ioctl(USB_RAW_IOCTL_EP0_WRITE)");
+		FAILURE_EXIT = 1;
 	}
 	return rv;
 }
@@ -184,8 +189,8 @@ int usb_raw_ep0_write(int fd, struct usb_raw_ep_io *io) {
 int usb_raw_ep_enable(int fd, struct usb_endpoint_descriptor *desc) {
 	int rv = lkl_sys_ioctl(fd, USB_RAW_IOCTL_EP_ENABLE, (long)desc);
 	if (rv < 0) {
-		perror("lkl_sys_ioctl(USB_RAW_IOCTL_EP_ENABLE)");
-		exit(EXIT_FAILURE);
+		printf("lkl_sys_ioctl(USB_RAW_IOCTL_EP_ENABLE)");
+		FAILURE_EXIT = 1;
 	}
 	return rv;
 }
@@ -193,8 +198,8 @@ int usb_raw_ep_enable(int fd, struct usb_endpoint_descriptor *desc) {
 int usb_raw_ep_disable(int fd, int ep) {
 	int rv = lkl_sys_ioctl(fd, USB_RAW_IOCTL_EP_DISABLE, (long)ep);
 	if (rv < 0) {
-		perror("lkl_sys_ioctl(USB_RAW_IOCTL_EP_DISABLE)");
-		exit(EXIT_FAILURE);
+		printf("lkl_sys_ioctl(USB_RAW_IOCTL_EP_DISABLE)");
+		FAILURE_EXIT = 1;
 	}
 	return rv;
 }
@@ -202,8 +207,8 @@ int usb_raw_ep_disable(int fd, int ep) {
 int usb_raw_ep_read(int fd, struct usb_raw_ep_io *io) {
 	int rv = lkl_sys_ioctl(fd, USB_RAW_IOCTL_EP_READ, (long)io);
 	if (rv < 0) {
-		perror("lkl_sys_ioctl(USB_RAW_IOCTL_EP_READ)");
-		exit(EXIT_FAILURE);
+		printf("lkl_sys_ioctl(USB_RAW_IOCTL_EP_READ)");
+		FAILURE_EXIT = 1;
 	}
 	return rv;
 }
@@ -211,8 +216,8 @@ int usb_raw_ep_read(int fd, struct usb_raw_ep_io *io) {
 int usb_raw_ep_write(int fd, struct usb_raw_ep_io *io) {
 	int rv = lkl_sys_ioctl(fd, USB_RAW_IOCTL_EP_WRITE, (long)io);
 	if (rv < 0) {
-		perror("lkl_sys_ioctl(USB_RAW_IOCTL_EP_WRITE)");
-		exit(EXIT_FAILURE);
+		printf("lkl_sys_ioctl(USB_RAW_IOCTL_EP_WRITE)");
+		FAILURE_EXIT = 1;
 	}
 	return rv;
 }
@@ -224,24 +229,24 @@ int usb_raw_ep_write_may_fail(int fd, struct usb_raw_ep_io *io) {
 void usb_raw_configure(int fd) {
 	int rv = lkl_sys_ioctl(fd, USB_RAW_IOCTL_CONFIGURE, 0);
 	if (rv < 0) {
-		perror("lkl_sys_ioctl(USB_RAW_IOCTL_CONFIGURED)");
-		exit(EXIT_FAILURE);
+		printf("lkl_sys_ioctl(USB_RAW_IOCTL_CONFIGURED)");
+		FAILURE_EXIT = 1;
 	}
 }
 
 void usb_raw_vbus_draw(int fd, uint32_t power) {
 	int rv = lkl_sys_ioctl(fd, USB_RAW_IOCTL_VBUS_DRAW, (long)power);
 	if (rv < 0) {
-		perror("lkl_sys_ioctl(USB_RAW_IOCTL_VBUS_DRAW)");
-		exit(EXIT_FAILURE);
+		printf("lkl_sys_ioctl(USB_RAW_IOCTL_VBUS_DRAW)");
+		FAILURE_EXIT = 1;
 	}
 }
 
 int usb_raw_eps_info(int fd, struct usb_raw_eps_info *info) {
 	int rv = lkl_sys_ioctl(fd, USB_RAW_IOCTL_EPS_INFO, (long)info);
 	if (rv < 0) {
-		perror("lkl_sys_ioctl(USB_RAW_IOCTL_EPS_INFO)");
-		exit(EXIT_FAILURE);
+		printf("lkl_sys_ioctl(USB_RAW_IOCTL_EPS_INFO)");
+		FAILURE_EXIT = 1;
 	}
 	return rv;
 }
@@ -249,16 +254,16 @@ int usb_raw_eps_info(int fd, struct usb_raw_eps_info *info) {
 void usb_raw_ep0_stall(int fd) {
 	int rv = lkl_sys_ioctl(fd, USB_RAW_IOCTL_EP0_STALL, 0);
 	if (rv < 0) {
-		perror("lkl_sys_ioctl(USB_RAW_IOCTL_EP0_STALL)");
-		exit(EXIT_FAILURE);
+		printf("lkl_sys_ioctl(USB_RAW_IOCTL_EP0_STALL)");
+		FAILURE_EXIT = 1;
 	}
 }
 
 void usb_raw_ep_set_halt(int fd, int ep) {
 	int rv = lkl_sys_ioctl(fd, USB_RAW_IOCTL_EP_SET_HALT, (long)ep);
 	if (rv < 0) {
-		perror("lkl_sys_ioctl(USB_RAW_IOCTL_EP_SET_HALT)");
-		exit(EXIT_FAILURE);
+		printf("lkl_sys_ioctl(USB_RAW_IOCTL_EP_SET_HALT)");
+		FAILURE_EXIT = 1;
 	}
 }
 
@@ -450,14 +455,16 @@ void log_event(struct usb_raw_event *event) {
 
 #define BCD_USB		0x0200
 
-#define USB_VENDOR	0x046d
-#define USB_PRODUCT	0xc312
+#define USB_VENDOR	0x0bda
+#define USB_PRODUCT	0x0811
 
 #define STRING_ID_MANUFACTURER	0
 #define STRING_ID_PRODUCT	1
 #define STRING_ID_SERIAL	2
 #define STRING_ID_CONFIG	3
 #define STRING_ID_INTERFACE	4
+#define STRING_ID_DATA      5
+#define STRING_ID_STATUS    6
 
 #define EP_MAX_PACKET_CONTROL	64
 #define EP_MAX_PACKET_INT	8
@@ -469,9 +476,9 @@ struct usb_device_descriptor usb_device = {
 	.bLength =		USB_DT_DEVICE_SIZE,
 	.bDescriptorType =	USB_DT_DEVICE,
 	.bcdUSB =		__constant_cpu_to_le16(BCD_USB),
-	.bDeviceClass =		0,
-	.bDeviceSubClass =	0,
-	.bDeviceProtocol =	0,
+	.bDeviceClass =		0xff, // vendor specific
+	.bDeviceSubClass =	0xff, // vendor specific
+	.bDeviceProtocol =	0xff, // vendor specific
 	.bMaxPacketSize0 =	EP_MAX_PACKET_CONTROL,
 	.idVendor =		__constant_cpu_to_le16(USB_VENDOR),
 	.idProduct =		__constant_cpu_to_le16(USB_PRODUCT),
@@ -505,26 +512,59 @@ struct usb_config_descriptor usb_config = {
 	.bMaxPower =		0x32,
 };
 
-struct usb_interface_descriptor usb_interface = {
-	.bLength =		USB_DT_INTERFACE_SIZE,
-	.bDescriptorType =	USB_DT_INTERFACE,
-	.bInterfaceNumber =	0,
-	.bAlternateSetting =	0,
-	.bNumEndpoints =	1,
-	.bInterfaceClass =	USB_CLASS_HID,
-	.bInterfaceSubClass =	1,
-	.bInterfaceProtocol =	1,
-	.iInterface =		STRING_ID_INTERFACE,
+/* -------- Interface 0 : bulk data -------- */
+static struct usb_interface_descriptor rtl_if0 = {
+	.bLength            = USB_DT_INTERFACE_SIZE,
+	.bDescriptorType    = USB_DT_INTERFACE,
+	.bInterfaceNumber   = 0,
+	.bAlternateSetting  = 0,
+	.bNumEndpoints      = 1,
+	.bInterfaceClass    = USB_CLASS_VENDOR_SPEC,
+	.bInterfaceSubClass = 0xff,
+	.bInterfaceProtocol = 0xff,
+	.iInterface         = STRING_ID_DATA,
 };
 
-struct usb_endpoint_descriptor usb_endpoint = {
-	.bLength =		USB_DT_ENDPOINT_SIZE,
-	.bDescriptorType =	USB_DT_ENDPOINT,
-	.bEndpointAddress =	USB_DIR_IN | EP_NUM_INT_IN,
-	.bmAttributes =		USB_ENDPOINT_XFER_INT,
-	.wMaxPacketSize =	EP_MAX_PACKET_INT,
-	.bInterval =		5,
+static struct usb_endpoint_descriptor rtl_ep_bulk_out = {
+	.bLength          = USB_DT_ENDPOINT_SIZE,
+	.bDescriptorType  = USB_DT_ENDPOINT,
+	.bEndpointAddress = USB_DIR_OUT | 1,   /* EP 1 OUT */
+	.bmAttributes     = USB_ENDPOINT_XFER_BULK,
+	.wMaxPacketSize   = __constant_cpu_to_le16(512),
+	.bInterval        = 0,
 };
+
+static struct usb_endpoint_descriptor rtl_ep_bulk_in = {
+	.bLength          = USB_DT_ENDPOINT_SIZE,
+	.bDescriptorType  = USB_DT_ENDPOINT,
+	.bEndpointAddress = USB_DIR_IN | 2,    /* EP 2 IN */
+	.bmAttributes     = USB_ENDPOINT_XFER_BULK,
+	.wMaxPacketSize   = __constant_cpu_to_le16(512),
+	.bInterval        = 0,
+};
+/* ------ End interface 0  ------ */
+/* -------- Interface 1 : interrupt status -------- */
+static struct usb_interface_descriptor rtl_if1 = {
+	.bLength            = USB_DT_INTERFACE_SIZE,
+	.bDescriptorType    = USB_DT_INTERFACE,
+	.bInterfaceNumber   = 1,
+	.bAlternateSetting  = 0,
+	.bNumEndpoints      = 1,
+	.bInterfaceClass    = USB_CLASS_VENDOR_SPEC,
+	.bInterfaceSubClass = 0xff,
+	.bInterfaceProtocol = 0xff,
+	.iInterface         = STRING_ID_STATUS,
+};
+
+static struct usb_endpoint_descriptor rtl_ep_int_in = {
+	.bLength          = USB_DT_ENDPOINT_SIZE,
+	.bDescriptorType  = USB_DT_ENDPOINT,
+	.bEndpointAddress = USB_DIR_IN | 3,    /* EP 3 IN */
+	.bmAttributes     = USB_ENDPOINT_XFER_INT,
+	.wMaxPacketSize   = __constant_cpu_to_le16(64),
+	.bInterval        = 6,                 /* ≈ 0.75 ms at HS */
+};
+/* ------- Interface 1 : end */
 
 char usb_hid_report[] = {
 	0x05, 0x01,                    // Usage Page (Generic Desktop)        0
@@ -586,11 +626,11 @@ int build_config(char *data, int length, bool other_speed) {
 	length -= sizeof(usb_config);
 	total_length += sizeof(usb_config);
 
-	assert(length >= sizeof(usb_interface));
-	memcpy(data, &usb_interface, sizeof(usb_interface));
-	data += sizeof(usb_interface);
-	length -= sizeof(usb_interface);
-	total_length += sizeof(usb_interface);
+	assert(length >= sizeof(rtl_if0));
+	memcpy(data, &rtl_if0, sizeof(rtl_if0));
+	data += sizeof(rtl_if0);
+	length -= sizeof(rtl_if0);
+	total_length += sizeof(rtl_if0);
 
 	assert(length >= sizeof(usb_hid));
 	memcpy(data, &usb_hid, sizeof(usb_hid));
@@ -599,7 +639,7 @@ int build_config(char *data, int length, bool other_speed) {
 	total_length += sizeof(usb_hid);
 
 	assert(length >= USB_DT_ENDPOINT_SIZE);
-	memcpy(data, &usb_endpoint, USB_DT_ENDPOINT_SIZE);
+	memcpy(data, &rtl_ep_bulk_out, USB_DT_ENDPOINT_SIZE);
 	data += USB_DT_ENDPOINT_SIZE;
 	length -= USB_DT_ENDPOINT_SIZE;
 	total_length += USB_DT_ENDPOINT_SIZE;
@@ -667,11 +707,11 @@ void process_eps_info(int fd) {
 	}
 
 	for (int i = 0; i < num; i++) {
-		if (assign_ep_address(&info.eps[i], &usb_endpoint))
+		if (assign_ep_address(&info.eps[i], &rtl_ep_bulk_out))
 			continue;
 	}
 
-	int ep_int_in_addr = usb_endpoint_num(&usb_endpoint);
+	int ep_int_in_addr = usb_endpoint_num(&rtl_ep_bulk_out);
 	assert(ep_int_in_addr != 0);
 	printf("ep_int_in: addr = %u\n", ep_int_in_addr);
 }
@@ -716,8 +756,8 @@ void *ep_int_in_loop(void *arg) {
 			printf("ep_int_in: device was likely reset, exiting\n");
 			break;
 		} else if (rv < 0) {
-			perror("usb_raw_ep_write_may_fail()");
-			exit(EXIT_FAILURE);
+			printf("usb_raw_ep_write_may_fail()");
+			FAILURE_EXIT = 1;
 		}
 		printf("ep_int_in: key down: %d\n", rv);
 
@@ -728,8 +768,8 @@ void *ep_int_in_loop(void *arg) {
 			printf("ep_int_in: device was likely reset, exiting\n");
 			break;
 		} else if (rv < 0) {
-			perror("usb_raw_ep_write_may_fail()");
-			exit(EXIT_FAILURE);
+			printf("usb_raw_ep_write_may_fail()");
+			FAILURE_EXIT = 1;
 		}
 		printf("ep_int_in: key up: %d\n", rv);
 
@@ -785,18 +825,18 @@ bool ep0_request(int fd, struct usb_raw_control_event *event,
 				return true;
 			default:
 				printf("fail: no response\n");
-				exit(EXIT_FAILURE);
+				FAILURE_EXIT = 1;
 			}
 			break;
 		case USB_REQ_SET_CONFIGURATION:
-			ep_int_in = usb_raw_ep_enable(fd, &usb_endpoint);
+			ep_int_in = usb_raw_ep_enable(fd, &rtl_ep_bulk_out);
 			printf("ep0: ep_int_in enabled: %d\n", ep_int_in);
-			int rv = pthread_create(&ep_int_in_thread, 0,
-					ep_int_in_loop, (void *)(long)fd);
-			if (rv != 0) {
-				perror("pthread_create(ep_int_in)");
-				exit(EXIT_FAILURE);
-			}
+//			int rv = pthread_create(&ep_int_in_thread, 0,
+//					ep_int_in_loop, (void *)(long)fd);
+//			if (rv != 0) {
+//				printf("pthread_create(ep_int_in)");
+//				FAILURE_EXIT = 1;
+//			}
 			ep_int_in_thread_spawned = true;
 			printf("ep0: spawned ep_int_in thread\n");
 			usb_raw_vbus_draw(fd, usb_config.bMaxPower);
@@ -804,12 +844,12 @@ bool ep0_request(int fd, struct usb_raw_control_event *event,
 			io->inner.length = 0;
 			return true;
 		case USB_REQ_GET_INTERFACE:
-			io->data[0] = usb_interface.bAlternateSetting;
+			io->data[0] = rtl_if0.bAlternateSetting;
 			io->inner.length = 1;
 			return true;
 		default:
 			printf("fail: no response\n");
-			exit(EXIT_FAILURE);
+			FAILURE_EXIT = 1;
 		}
 		break;
 	case USB_TYPE_CLASS:
@@ -826,19 +866,23 @@ bool ep0_request(int fd, struct usb_raw_control_event *event,
 			return true;
 		default:
 			printf("fail: no response\n");
-			exit(EXIT_FAILURE);
+			FAILURE_EXIT = 1;
 		}
 		break;
 	case USB_TYPE_VENDOR:
 		switch (event->ctrl.bRequest) {
-		default:
-			printf("fail: no response\n");
-			exit(EXIT_FAILURE);
+			case 0x5:
+				io->data[0] = rtl_if0.bAlternateSetting;
+				io->inner.length = 1;
+				return true;
+			default:
+				printf("fail: no response\n");
+				FAILURE_EXIT = 1;
 		}
 		break;
 	default:
 		printf("fail: no response\n");
-		exit(EXIT_FAILURE);
+		FAILURE_EXIT = 1;
 	}
 }
 
@@ -866,8 +910,8 @@ void ep0_loop(int fd) {
 				pthread_cancel(ep_int_in_thread);
 				int rv = pthread_join(ep_int_in_thread, NULL);
 				if (rv != 0) {
-					perror("pthread_join(ep_int_in)");
-					exit(EXIT_FAILURE);
+					printf("pthread_join(ep_int_in)");
+					FAILURE_EXIT = 1;
 				}
 				usb_raw_ep_disable(fd, ep_int_in);
 				ep_int_in_thread_spawned = false;
