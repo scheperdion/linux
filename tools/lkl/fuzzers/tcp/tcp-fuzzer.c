@@ -64,16 +64,55 @@ unsigned short tcp_checksum(void *b, int len) {
     return result;
 }
 
+// Print the TCP header pointed to by tcp for debugging
+void print_tcp_ascii(const struct tcp_header *tcp) {
+	uint16_t src_port = ntohs(tcp->source_port);
+	uint16_t dst_port = ntohs(tcp->dest_port);
+	uint32_t seq = ntohl(tcp->seq_number);
+	uint32_t ack = ntohl(tcp->ack_number);
+	uint8_t data_offset = tcp->data_offset >> 4;
+	uint8_t flags = tcp->flags;
+	uint16_t win = ntohs(tcp->window_size);
+	uint16_t chksum = ntohs(tcp->checksum);
+	uint16_t urg = ntohs(tcp->urgent_pointer);
+
+	printf("+-----------------------------+-----------------------------+\n");
+	printf("|      Source Port: %5u     |     Dest Port: %5u      |\n", src_port, dst_port);
+	printf("+-----------------------------+-----------------------------+\n");
+	printf("|                 Sequence Number: %10u              |\n", seq);
+	printf("+-----------------------------------------------------------+\n");
+	printf("|             Acknowledgment Number: %10u          |\n", ack);
+	printf("+------+--------+--------------------------------------------+\n");
+	printf("| Data |  Resvd | Flags |     Window Size: %5u           |\n", win);
+	printf("| Off  | (0x%01x)   | ", data_offset & 0x0F);
+	printf("%c%c%c%c%c%c |\n",
+		(flags & 0x20) ? 'U' : '-',
+		(flags & 0x10) ? 'A' : '-',
+		(flags & 0x08) ? 'P' : '-',
+		(flags & 0x04) ? 'R' : '-',
+		(flags & 0x02) ? 'S' : '-',
+		(flags & 0x01) ? 'F' : '-'
+	);
+	printf("+-----------------------------+-----------------------------+\n");
+	printf("|      Checksum: 0x%04x     |   Urgent Pointer: %5u    |\n", chksum, urg);
+	printf("+-----------------------------+-----------------------------+\n");
+}
+
 /*
  * 'Create' a 'valid' packet from a stream of bytes (tcp_header)
  */
-void tcp_create_packet(struct tcp_header * tcp_header, size_t length) {
+void tcp_fix_packet(struct tcp_header * tcp_header, size_t length, int ack_number, int syn_number) {
 	struct pseudo_header psh;
 	//tcp_header->source_port = htons(12345);   // Source port
     tcp_header->dest_port = htons(9999);      // Destination port
-    //tcp_header->seq_number = htonl(0);          // Sequence number
-    //tcp_header->ack_number = htonl(0);             // Acknowledgment number
-    tcp_header->data_offset = ((length / 4) << 4);                // Data offset (no options)
+//    if(syn_number != 0) {
+//		tcp_header->seq_number = htonl(syn_number + 1);
+//    }
+    if(ack_number != 0) {
+		tcp_header->ack_number = htonl(ack_number + 1);
+    }
+    int l = length > 60 ? 60 : length;                       // maximum size of tcp header
+    tcp_header->data_offset = ((l / 4) << 4);                // start of data (end of tcp header)
     //tcp_header->flags = 0x02;
     //tcp_header->window_size = htons(5840);    // Window size
     tcp_header->checksum = 0;               // Initial checksum
@@ -93,7 +132,7 @@ void tcp_create_packet(struct tcp_header * tcp_header, size_t length) {
     tcp_header->checksum = tcp_checksum(pseudogram, sizeof(pseudogram));
 }
 
-void initialize_tcp_server() {
+void* initialize_tcp_server(void* arg) {
 	int sock;
 	struct lkl_sockaddr_in address;
 	address.sin_family = LKL_AF_INET;
@@ -103,20 +142,29 @@ void initialize_tcp_server() {
 	sock = lkl_sys_socket(LKL_AF_INET, LKL_SOCK_STREAM, 0);
 	lkl_sys_bind(sock, (struct lkl_sockaddr *)&address, sizeof(address));
 	lkl_sys_listen(sock, 3);
+
+	struct lkl_sockaddr client_addr;
+	int addr_size = sizeof(client_addr);
+	//int value = *(int*)arg;
+	printf("Waiting for connection...\n");
+	while(true) {
+		int ret = lkl_sys_accept(sock, &client_addr, &addr_size);
+		if(ret < 0) { printf("--- FAIL %d\n", ret); }
+		else { printf("+++ Connection established!\n"); sleep(1); lkl_sys_close(ret); } //
+	}
+//	exit(EXIT_SUCCESS);
+	return 0;
 }
 
-size_t getpacket(unsigned char *buf, size_t length) {
-	size_t len = buf[0] & 0xff;
-	if(len < 20) len = 20;
-	if(len > 128) len = 128;
-	if(len > length) {
-		len = length;
-	}
+size_t getpacket_length(unsigned char *buf, size_t length) {
+	size_t len = 20 + (buf[0] & 0xff);
+	if(len > length - 1) len = length - 1;
 	return len;
 }
 
-void fuzz_tcp_syn_packet(unsigned char* packet, size_t length) {
-    struct lkl_sockaddr_in server_addr;
+void fuzz_tcp_packets(unsigned char* packets, size_t length) {
+	int ret = 0;
+	struct lkl_sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;  // IPv4
     server_addr.sin_addr.lkl_s_addr = inet_addr("127.0.0.1");
@@ -125,31 +173,52 @@ void fuzz_tcp_syn_packet(unsigned char* packet, size_t length) {
 	if (clientsock < 0) {
 		printf("socket error (%s)\n", lkl_strerror(clientsock));
 	}
-
-	char recv_packet[1024];
-	memset(recv_packet, 0, 1024);
 	char send_packet[1024];
-	memset(send_packet, 0, 1024);
-	int errors = 0;
-	int ret = 0;
-	unsigned char* i = packet;
-	tcp_create_packet((struct tcp_header *)send_packet, length);
-	ret = lkl_sys_sendto(clientsock, send_packet, length, 0, (struct lkl_sockaddr *)&server_addr, sizeof(server_addr));
-	if (ret < 0) {
-		printf("sendto error (%s)\n", lkl_strerror(ret));
-	}
+	int start = 0;
+	unsigned int ACK_NUMBER = 0;
+	unsigned int SYN_NUMBER = 0;
+	while(length > 0) {
+		// prepare packet
+		memset(send_packet, 0, 1024);
+		int len = getpacket_length(packets, length);
+		//printf("%d \t%d\t%d\n", start, length, len); // len = 0x0 often, it then does 2 bytes for one useless packet, maybe minimal 20 bytes otherwise ignore?
+		memcpy(send_packet, packets + 1 + start, len);
+		length = length - len - 1;
+		start = start + len + 1;
 
-
-	while(errors < 1) {
-		memset(recv_packet, 0, 100);
-		ret = lkl_sys_recv(clientsock, recv_packet, sizeof(recv_packet), LKL_MSG_DONTWAIT);
+		// send packet
+		if(len < 20) len = 20;  // minimum TCP packet size
+		tcp_fix_packet((struct tcp_header *)send_packet, len, ACK_NUMBER, SYN_NUMBER);
+		memcpy(&SYN_NUMBER, send_packet + 4, 4);
+		SYN_NUMBER = ntohl(SYN_NUMBER);
+		//printf("--- SEND ---\n");
+		//print_tcp_ascii((struct tcp_header *)send_packet);
+		ret = lkl_sys_sendto(clientsock, send_packet, len, 0, (struct lkl_sockaddr *)&server_addr, sizeof(server_addr));
 		if (ret < 0) {
-			//printf("recv error (%s)\n", lkl_strerror(ret));
-			errors++;
-		} else {
-			//printf("recv bytes: %d\n", ret);
+			printf("sendto error (%s)\n", lkl_strerror(ret));
+		}
+
+		int errors = 0;
+		unsigned char recv_packet[1024];
+		memset(recv_packet, 0, 1024);
+		while(errors == 0) { // receive all packets before terminating fuzzing input
+			memset(recv_packet, 0, 1024);
+			ret = lkl_sys_recv(clientsock, recv_packet, sizeof(recv_packet), LKL_MSG_DONTWAIT);
+			if (ret < 0) {
+				//printf("recv error (%s)\n", lkl_strerror(ret));
+				errors++;
+			} else {
+				uint16_t src_port = ntohs(((struct tcp_header *) (recv_packet + 20))->source_port);
+				uint32_t seq = ntohl(((struct tcp_header *) (recv_packet + 20))->seq_number);
+				if(src_port == 9999) { // if packet was received from listener
+					ACK_NUMBER = seq;  // set ack number to use next time
+					//printf("--- RECV ---\n");
+					//print_tcp_ascii((struct tcp_header *) (recv_packet + 20));
+				}
+			}
 		}
 	}
+	//printf("DONE\n\n");
 	lkl_sys_close(clientsock);
 }
 
@@ -161,7 +230,7 @@ static int initialize_lkl(void)
 		return -1;
 	}
 
-	ret = lkl_start_kernel("mem=50M kasan.fault=panic");
+	ret = lkl_start_kernel("mem=50M kasan.fault=panic loglevel=2");
 	if (ret) {
 		printf("lkl_start_kernel failed\n");
 		lkl_cleanup();
@@ -169,7 +238,11 @@ static int initialize_lkl(void)
 	}
 
 	lkl_if_up(1);                   // to enable loopback interface
-	initialize_tcp_server();        // to start the TCP server listiner inside LKL
+	pthread_t thread_id;            // to start the TCP server listiner inside LKL
+	if (pthread_create(&thread_id, NULL, initialize_tcp_server, NULL) != 0) {
+		perror("pthread_create");
+	}
+	sleep(1);
 	return 0;
 }
 
@@ -182,7 +255,7 @@ void flush_coverage(void)
 
 void end_fuzzing(void) {
 	flush_coverage();
-	lkl_sys_halt();
+	//lkl_sys_halt(); TODO: temporary comment, my kernel is built with options where the UndefinedBehavior sanitizer error shows up
 }
 
 int LLVMFuzzerInitialize(int *argc, char ***argv)
@@ -197,13 +270,13 @@ int LLVMFuzzerInitialize(int *argc, char ***argv)
 int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size)
 {
 	static int iter;
-	uint8_t data[1024] = {0};
+	uint8_t data[65535] = {0};
 
-	if (Size > 1024)
-		Size = 1024;
+	if (Size > 65535)
+		Size = 65535;
 
 	memcpy(data, Data, Size);
-	fuzz_tcp_syn_packet(data, Size);
+	fuzz_tcp_packets(data, Size);
 	iter++;
 	if (iter > 1000) {
 		flush_coverage();
