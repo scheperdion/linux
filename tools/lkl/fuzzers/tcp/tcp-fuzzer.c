@@ -101,7 +101,7 @@ void print_tcp_ascii(const struct tcp_header *tcp) {
 /*
  * 'Create' a 'valid' packet from a stream of bytes (tcp_header)
  */
-void tcp_fix_packet(struct tcp_header * tcp_header, size_t length, int ack_number, int syn_number) {
+void tcp_fix_packet(struct tcp_header * tcp_header, size_t length, unsigned int ack_number[], int syn_number) {
 	struct pseudo_header psh;
 	//tcp_header->source_port = htons(12345);   // Source port
     tcp_header->dest_port = htons(9999);      // Destination port
@@ -109,7 +109,7 @@ void tcp_fix_packet(struct tcp_header * tcp_header, size_t length, int ack_numbe
 //		tcp_header->seq_number = htonl(syn_number + 1);
 //    }
     if(ack_number != 0) {
-		tcp_header->ack_number = htonl(ack_number + 1);
+		tcp_header->ack_number = htonl(ack_number[ntohs(tcp_header->source_port)] + 1);
     }
     int l = length > 60 ? 60 : length;                       // maximum size of tcp header
     tcp_header->data_offset = ((l / 4) << 4);                // start of data (end of tcp header)
@@ -132,28 +132,147 @@ void tcp_fix_packet(struct tcp_header * tcp_header, size_t length, int ack_numbe
     tcp_header->checksum = tcp_checksum(pseudogram, sizeof(pseudogram));
 }
 
-void* initialize_tcp_server(void* arg) {
-	int sock;
+void hexdump(const char *data, int length) {
+    int i;
+    for (i = 0; i < length; i += 16) {
+        printf("%08x  ", i);
+
+        // Print hex bytes
+        for (int j = 0; j < 16; ++j) {
+            if (i + j < length)
+                printf("%02x ", (unsigned char)data[i + j]);
+            else
+                printf("   ");
+            if (j == 7) printf(" "); // extra space in middle
+        }
+
+        printf(" |");
+
+        // Print ASCII characters
+        for (int j = 0; j < 16 && i + j < length; ++j) {
+            char c = data[i + j];
+            printf("%c", isprint((unsigned char)c) ? c : '.');
+        }
+
+        printf("|\n");
+    }
+}
+
+// Constants
+#define BUF_SIZE 8192
+#define MAX_STATES 12
+
+// Global state counter
+int state_counts[MAX_STATES + 1] = {0};
+
+// Optional state name array (not used but kept for reference)
+const char *tcp_state_names[MAX_STATES + 1] = {
+    "UNKNOWN",      // 0
+    "ESTABLISHED",  // 1
+    "SYN_SENT",     // 2
+    "SYN_RECV",     // 3
+    "FIN_WAIT1",    // 4
+    "FIN_WAIT2",    // 5
+    "TIME_WAIT",    // 6
+    "CLOSE",        // 7
+    "CLOSE_WAIT",   // 8
+    "LAST_ACK",     // 9
+    "LISTEN",       // 10
+    "CLOSING"       // 11
+};
+
+// Convert 2-char hex string to integer (e.g., "0A" => 10)
+int parse_state(const char *line) {
+    char h1 = line[34], h2 = line[35]; //   0: 3500007F:0035 00000000:0000
+
+    int hi = (h1 >= 'A') ? ((h1 & ~0x20) - 'A' + 10) : (h1 - '0');
+    int lo = (h2 >= 'A') ? ((h2 & ~0x20) - 'A' + 10) : (h2 - '0');
+
+    if (hi < 0 || hi > 15 || lo < 0 || lo > 15) return 0;
+    return (hi << 4) | lo;
+}
+
+void read_tcp_state() {
+	int proc_tcp = lkl_sys_open("/proc/net/tcp", LKL_O_RDONLY, 0);
+	if (proc_tcp < 0) { printf("lkl_sys_open error\n"); exit(1); }
+	int state_counts_local[MAX_STATES + 1] = {0};
+	char buf[8192];
+	long total = 0;
+	long length = 0;
+	int header_skip = 0;
+    while ((length = lkl_sys_read(proc_tcp, buf, 8192))) {
+        for (int i = 0; i < length; ++i) {
+            char c = buf[i];
+            if (c == '\n') {
+                if (header_skip && i+40 < length) {
+                    int state = parse_state(&buf[i+1]);
+                    if (state >= 0 && state <= MAX_STATES)
+                        state_counts_local[state]++;
+                    else
+                        exit(1);
+                } else {
+                    header_skip = 1;  // skip header
+                }
+            }
+        }
+    }
+    for (int i = 0; i < MAX_STATES; ++i) {
+	    if(state_counts_local[i] > state_counts[i]) {
+		   state_counts[i] = state_counts_local[i];
+		}
+    }
+	lkl_sys_close(proc_tcp);
+}
+
+void* terminate_connection(void* arg) {
+	// https://blog.cloudflare.com/this-is-strictly-a-violation-of-the-tcp-specification/
+	int client_sock = *(int*)arg;
+	usleep(50);
+	char buf[4096] = {0};
+	int len = lkl_sys_recv(client_sock, buf, 4096, MSG_DONTWAIT);
+	if (len > 0) {
+	    // Data is available
+	    printf("Received %d bytes\n", len);
+	    hexdump(buf, len);
+	}
+	else if (len == 0) {
+		printf("FIN received!\n");
+	}
+	else if( len == -ECONNRESET){
+        printf("RST received!\n");
+	}
+	else if (len != -EAGAIN) {
+		lkl_perror("Error receiving data", len);
+	}
+	lkl_sys_close(client_sock);
+	return NULL;
+}
+
+int generate_tcp_server_socket() {
+	int sock, ret;
 	struct lkl_sockaddr_in address;
 	address.sin_family = LKL_AF_INET;
 	address.sin_addr.lkl_s_addr = inet_addr("127.0.0.1");
 	address.sin_port = htons(9999);
 
+	// open tcp socket
 	sock = lkl_sys_socket(LKL_AF_INET, LKL_SOCK_STREAM, 0);
-	lkl_sys_bind(sock, (struct lkl_sockaddr *)&address, sizeof(address));
-	lkl_sys_listen(sock, 3);
-
-	struct lkl_sockaddr client_addr;
-	int addr_size = sizeof(client_addr);
-	//int value = *(int*)arg;
-	printf("Waiting for connection...\n");
-	while(true) {
-		int ret = lkl_sys_accept(sock, &client_addr, &addr_size);
-		if(ret < 0) { printf("--- FAIL %d\n", ret); }
-		else { printf("+++ Connection established!\n"); sleep(1); lkl_sys_close(ret); } //
-	}
-//	exit(EXIT_SUCCESS);
-	return 0;
+	if (sock < 0) { printf("lkl_sys_socket error\n"); exit(1); }
+	int optval = 1;
+	// re-use address (open and close socket more than 10,000 times/second)
+	ret = lkl_sys_setsockopt(sock, LKL_SOL_SOCKET, LKL_SO_REUSEADDR, &optval, sizeof(optval));
+	if (ret < 0) { printf("lkl_sys_setsockopt error\n"); exit(1); }
+	// bind to port
+	ret = lkl_sys_bind(sock, (struct lkl_sockaddr *)&address, sizeof(address));
+	if (ret < 0) { printf("lkl_sys_bind error\n"); exit(1); }
+	// listen
+	ret = lkl_sys_listen(sock, 3);
+	if (ret < 0) { printf("lkl_sys_listen error\n"); exit(1); }
+	// set the socket to non blocking (i.e. recv doesn't block)
+	int flags = lkl_sys_fcntl(sock, LKL_F_GETFL, 0);
+	ret = lkl_sys_fcntl(sock, LKL_F_SETFL, flags | LKL_O_NONBLOCK);
+	if (ret < 0) { printf("lkl_sys_fcntl error\n"); exit(1); }
+	return sock;
 }
 
 size_t getpacket_length(unsigned char *buf, size_t length) {
@@ -163,6 +282,11 @@ size_t getpacket_length(unsigned char *buf, size_t length) {
 }
 
 void fuzz_tcp_packets(unsigned char* packets, size_t length) {
+	// start TCP listener
+	int server_sock = generate_tcp_server_socket();
+	int clients_size = 0, clients_max = 65535;
+	pthread_t clients[65535];
+
 	int ret = 0;
 	struct lkl_sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
@@ -175,10 +299,11 @@ void fuzz_tcp_packets(unsigned char* packets, size_t length) {
 	}
 	char send_packet[1024];
 	int start = 0;
-	unsigned int ACK_NUMBER = 0;
+	unsigned int ACK_NUMBERS[65536] = { 0 };
 	unsigned int SYN_NUMBER = 0;
+
 	while(length > 0) {
-		// prepare packet
+		// ++++ PREPARE PACKET
 		memset(send_packet, 0, 1024);
 		int len = getpacket_length(packets, length);
 		//printf("%d \t%d\t%d\n", start, length, len); // len = 0x0 often, it then does 2 bytes for one useless packet, maybe minimal 20 bytes otherwise ignore?
@@ -186,9 +311,9 @@ void fuzz_tcp_packets(unsigned char* packets, size_t length) {
 		length = length - len - 1;
 		start = start + len + 1;
 
-		// send packet
+		// ++++ SEND PACKET
 		if(len < 20) len = 20;  // minimum TCP packet size
-		tcp_fix_packet((struct tcp_header *)send_packet, len, ACK_NUMBER, SYN_NUMBER);
+		tcp_fix_packet((struct tcp_header *)send_packet, len, ACK_NUMBERS, SYN_NUMBER);
 		memcpy(&SYN_NUMBER, send_packet + 4, 4);
 		SYN_NUMBER = ntohl(SYN_NUMBER);
 		//printf("--- SEND ---\n");
@@ -198,10 +323,11 @@ void fuzz_tcp_packets(unsigned char* packets, size_t length) {
 			printf("sendto error (%s)\n", lkl_strerror(ret));
 		}
 
+		// ++++ RECEIVE ALL PACKETS CURRENTLY SENT (GIVE TIME TO PROCESS)
 		int errors = 0;
 		unsigned char recv_packet[1024];
 		memset(recv_packet, 0, 1024);
-		while(errors == 0) { // receive all packets before terminating fuzzing input
+		while(errors == 0) {
 			memset(recv_packet, 0, 1024);
 			ret = lkl_sys_recv(clientsock, recv_packet, sizeof(recv_packet), LKL_MSG_DONTWAIT);
 			if (ret < 0) {
@@ -209,17 +335,44 @@ void fuzz_tcp_packets(unsigned char* packets, size_t length) {
 				errors++;
 			} else {
 				uint16_t src_port = ntohs(((struct tcp_header *) (recv_packet + 20))->source_port);
+				uint16_t dst_port = ntohs(((struct tcp_header *) (recv_packet + 20))->dest_port);
 				uint32_t seq = ntohl(((struct tcp_header *) (recv_packet + 20))->seq_number);
 				if(src_port == 9999) { // if packet was received from listener
-					ACK_NUMBER = seq;  // set ack number to use next time
+					ACK_NUMBERS[dst_port] = seq;  // set ack number to use next time
 					//printf("--- RECV ---\n");
 					//print_tcp_ascii((struct tcp_header *) (recv_packet + 20));
 				}
 			}
 		}
+
+		// ++++ ACCEPT CONNECTIONS (we are non-blocking so this is OK)
+		struct lkl_sockaddr_in client_addr;
+		int addr_size = sizeof(client_addr);
+		ret = lkl_sys_accept(server_sock, &client_addr, &addr_size);
+		if(ret > 0 && clients_size < clients_max) {
+			printf("+++ Connection established! (port:%d)\n", ntohs(client_addr.sin_port));
+			if (pthread_create(&clients[clients_size], NULL, terminate_connection, &ret) != 0) {
+				printf("pthread_create %d\n", ret); exit(1);
+			}
+			clients_size++;
+		} //
+
+		// ++++ READ ALL THE CURRENT TCP STATES FOR COVERAGE GUIDANCE
+		//read_tcp_state(); // TODO: this has big performance hit and is only necessary to showcase the fuzzer!
 	}
-	//printf("DONE\n\n");
+
+
+	// close my raw socket
 	lkl_sys_close(clientsock);
+	// close open sockets
+	for(int i = 0; i < clients_size; i++) {
+		pthread_join(clients[i], NULL);
+	}
+	clients_size = 0;
+	// close listening socket
+	ret = lkl_sys_close(server_sock);
+	if(ret < 0) { printf("server socket close fail\n"); exit(1); }
+	//printf("DONE\n\n");
 }
 
 static int initialize_lkl(void)
@@ -237,12 +390,13 @@ static int initialize_lkl(void)
 		return -1;
 	}
 
+	lkl_mount_fs("proc");
 	lkl_if_up(1);                   // to enable loopback interface
-	pthread_t thread_id;            // to start the TCP server listiner inside LKL
-	if (pthread_create(&thread_id, NULL, initialize_tcp_server, NULL) != 0) {
-		perror("pthread_create");
-	}
-	sleep(1);
+//	pthread_t thread_id;            // to start the TCP server listiner inside LKL
+//	if (pthread_create(&thread_id, NULL, initialize_tcp_server, NULL) != 0) {
+//		perror("pthread_create");
+//	}
+//	sleep(1);
 	return 0;
 }
 
@@ -281,6 +435,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size)
 	if (iter > 1000) {
 		flush_coverage();
 		iter = 0;
+//		for (int i = 0; i <= MAX_STATES; ++i) {
+//            char msg[64];
+//            printf("%-12s : %d\n", tcp_state_names[i], state_counts[i]);
+//    	}
 	}
 	return 0;
 }
