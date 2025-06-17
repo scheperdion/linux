@@ -39,6 +39,14 @@ struct ip_header {
     uint32_t dest_ip;            // Destination IP address
 } __attribute__((packed));
 
+// Structure for the UDP header
+struct udp_header {
+    uint16_t source_port;   // Source port
+    uint16_t dest_port;     // Destination port
+    uint16_t length;        // UDP header + data (in bytes)
+    uint16_t checksum;      // Optional in IPv4, mandatory in IPv6
+} __attribute__((packed));
+
 // Structure for the IGMP header
 struct igmp_header {
     uint8_t  type;               // 0x22
@@ -126,6 +134,15 @@ void igmp_fix_packet(struct igmp_header *igmp, size_t length) {
 	igmp->checksum = 0;
 	igmp->checksum = tcp_checksum(igmp, length);
 }
+
+/*
+ *
+ */
+void udp_fix_packet(struct udp_header *udp, size_t length) {
+	udp->dest_port = htons(9998);
+	udp->checksum = 0;
+	udp->checksum = tcp_checksum(udp, length);
+}
 /*
  * 'Create' a 'valid' IP packet
  */
@@ -136,11 +153,15 @@ int ip_fix_packet(struct ip_header *ip, size_t length) {
 	//ip->identification = htons(rand() & 0xFFFF); // random identification?
 	//ip->flags_fragment_offset = htons(0x4000); // Don't Fragment
 	ip->ttl = 64;
-	//ip->protocol = 2; // TCP
+	ip->protocol = 17; // TCP
 	ip->header_checksum = 0; // fill in later
 	ip->source_ip = inet_addr("127.0.0.1");
 	ip->dest_ip = inet_addr("127.0.0.1");
 	ip->header_checksum = tcp_checksum(ip, ip->version_ihl & 0x0F);
+	return (ip->version_ihl & 0x0F) * 4;
+}
+
+int ip_get_length(struct ip_header *ip) {
 	return (ip->version_ihl & 0x0F) * 4;
 }
 
@@ -325,6 +346,30 @@ int generate_tcp_server_socket() {
 	return sock;
 }
 
+int generate_udp_server_socket() {
+	int sock, ret;
+	struct lkl_sockaddr_in address;
+	address.sin_family = LKL_AF_INET;
+	address.sin_addr.lkl_s_addr = inet_addr("127.0.0.1");
+	address.sin_port = htons(9998);
+
+	// open tcp socket
+	sock = lkl_sys_socket(LKL_AF_INET, LKL_SOCK_DGRAM, 0);
+	if (sock < 0) { printf("lkl_sys_socket error\n"); exit(1); }
+	int optval = 1;
+	// re-use address (open and close socket more than 10,000 times/second)
+	ret = lkl_sys_setsockopt(sock, LKL_SOL_SOCKET, LKL_SO_REUSEADDR, &optval, sizeof(optval));
+	if (ret < 0) { printf("lkl_sys_setsockopt error\n"); exit(1); }
+	// bind to port
+	ret = lkl_sys_bind(sock, (struct lkl_sockaddr *)&address, sizeof(address));
+	if (ret < 0) { printf("lkl_sys_bind error\n"); exit(1); }
+	// set the socket to non blocking (i.e. recv doesn't block)
+	int flags = lkl_sys_fcntl(sock, LKL_F_GETFL, 0);
+	ret = lkl_sys_fcntl(sock, LKL_F_SETFL, flags | LKL_O_NONBLOCK);
+	if (ret < 0) { printf("lkl_sys_fcntl error\n"); exit(1); }
+	return sock;
+}
+
 size_t getpacket_length(unsigned char *buf, size_t length) {
 	size_t len = 40 + (buf[0] & 0xff);
 	if(len > length - 1) len = length - 1;
@@ -334,6 +379,7 @@ size_t getpacket_length(unsigned char *buf, size_t length) {
 void fuzz_tcp_packets(unsigned char* packets, size_t length) {
 	// start TCP listener
 	int server_sock = generate_tcp_server_socket();
+	int udp_sock = generate_udp_server_socket();
 	int clients_size = 0, clients_max = 65535;
 	pthread_t clients[65535];
 
@@ -376,6 +422,9 @@ void fuzz_tcp_packets(unsigned char* packets, size_t length) {
 		if(ip_protocol == 2) {
 			igmp_fix_packet((struct igmp_header *)(send_packet + ip_length), len - ip_length);
 		}
+		if(ip_protocol == 17) {
+			udp_fix_packet((struct udp_header *)(send_packet + ip_length), len - ip_length);
+		}
 
 		//printf("--- SEND ---\n");
 		//print_tcp_ascii((struct tcp_header *)(send_packet + ip_length));
@@ -395,9 +444,10 @@ void fuzz_tcp_packets(unsigned char* packets, size_t length) {
 				//printf("recv error (%s)\n", lkl_strerror(ret));
 				errors++;
 			} else {
-				uint16_t src_port = ntohs(((struct tcp_header *) (recv_packet + 20))->source_port);
-				uint16_t dst_port = ntohs(((struct tcp_header *) (recv_packet + 20))->dest_port);
-				uint32_t seq = ntohl(((struct tcp_header *) (recv_packet + 20))->seq_number);
+				int ip_length = ip_get_length((struct ip_header *) recv_packet);
+				uint16_t src_port = ntohs(((struct tcp_header *) (recv_packet + ip_length))->source_port);
+				uint16_t dst_port = ntohs(((struct tcp_header *) (recv_packet + ip_length))->dest_port);
+				uint32_t seq = ntohl(((struct tcp_header *) (recv_packet + ip_length))->seq_number);
 				if(src_port == 9999) { // if packet was received from listener
 					ACK_NUMBERS[dst_port] = seq;  // set ack number to use next time
 					//printf("--- RECV ---\n");
@@ -406,7 +456,7 @@ void fuzz_tcp_packets(unsigned char* packets, size_t length) {
 			}
 		}
 
-		// ++++ ACCEPT CONNECTIONS (we are non-blocking so this is OK)
+		// ++++ TCP ACCEPT CONNECTIONS (we are non-blocking so this is OK)
 		struct lkl_sockaddr_in client_addr;
 		int addr_size = sizeof(client_addr);
 		ret = lkl_sys_accept(server_sock, &client_addr, &addr_size);
@@ -432,6 +482,8 @@ void fuzz_tcp_packets(unsigned char* packets, size_t length) {
 	clients_size = 0;
 	// close listening socket
 	ret = lkl_sys_close(server_sock);
+	if(ret < 0) { printf("server socket close fail\n"); exit(1); }
+	ret = lkl_sys_close(udp_sock);
 	if(ret < 0) { printf("server socket close fail\n"); exit(1); }
 	//printf("DONE\n\n");
 }
