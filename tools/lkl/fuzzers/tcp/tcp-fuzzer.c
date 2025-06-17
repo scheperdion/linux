@@ -25,6 +25,28 @@
 
 #include "tcp-fuzzer.h"
 
+// Structure for the IP header
+struct ip_header {
+    uint8_t  version_ihl;        // Version (4 bits) + Internet Header Length (4 bits)
+    uint8_t  tos;                // Type of Service
+    uint16_t total_length;       // Total Length (header + data)
+    uint16_t identification;     // Identification
+    uint16_t flags_fragment_offset; // Flags (3 bits) + Fragment Offset (13 bits)
+    uint8_t  ttl;                // Time To Live
+    uint8_t  protocol;           // Protocol (e.g., TCP = 6)
+    uint16_t header_checksum;    // Header checksum
+    uint32_t source_ip;          // Source IP address
+    uint32_t dest_ip;            // Destination IP address
+} __attribute__((packed));
+
+// Structure for the IGMP header
+struct igmp_header {
+    uint8_t  type;               // 0x22
+    uint8_t  reserved1;
+    uint16_t checksum;
+    uint16_t reserved2;
+} __attribute__((packed));
+
 // Structure for the TCP header
 struct tcp_header {
     uint16_t source_port;  // Source port
@@ -36,7 +58,7 @@ struct tcp_header {
     uint16_t window_size;  // Window size
     uint16_t checksum;     // Checksum
     uint16_t urgent_pointer; // Urgent pointer
-};
+} __attribute__((packed));
 
 // Pseudo header needed for TCP checksum calculation
 struct pseudo_header {
@@ -97,6 +119,34 @@ void print_tcp_ascii(const struct tcp_header *tcp) {
 	printf("|      Checksum: 0x%04x     |   Urgent Pointer: %5u    |\n", chksum, urg);
 	printf("+-----------------------------+-----------------------------+\n");
 }
+/*
+ * 'Create' a 'valid' IGMP packet
+ */
+void igmp_fix_packet(struct igmp_header *igmp, size_t length) {
+	igmp->checksum = 0;
+	igmp->checksum = tcp_checksum(igmp, length);
+}
+/*
+ * 'Create' a 'valid' IP packet
+ */
+int ip_fix_packet(struct ip_header *ip, size_t length) {
+	ip->version_ihl = (4 << 4) | 5;
+	ip->tos = 0;
+	ip->total_length = htons(length);
+	//ip->identification = htons(rand() & 0xFFFF); // random identification?
+	//ip->flags_fragment_offset = htons(0x4000); // Don't Fragment
+	ip->ttl = 64;
+	//ip->protocol = 2; // TCP
+	ip->header_checksum = 0; // fill in later
+	ip->source_ip = inet_addr("127.0.0.1");
+	ip->dest_ip = inet_addr("127.0.0.1");
+	ip->header_checksum = tcp_checksum(ip, ip->version_ihl & 0x0F);
+	return (ip->version_ihl & 0x0F) * 4;
+}
+
+int ip_get_protocol(struct ip_header *ip) {
+	return ip->protocol;
+}
 
 /*
  * 'Create' a 'valid' packet from a stream of bytes (tcp_header)
@@ -111,7 +161,7 @@ void tcp_fix_packet(struct tcp_header * tcp_header, size_t length, unsigned int 
     if(ack_number != 0) {
 		tcp_header->ack_number = htonl(ack_number[ntohs(tcp_header->source_port)] + 1);
     }
-    int l = length > 60 ? 60 : length;                       // maximum size of tcp header
+    int l = length > 60 ? 60 : length;                       // maximum size of tcp header (includes options)
     tcp_header->data_offset = ((l / 4) << 4);                // start of data (end of tcp header)
     //tcp_header->flags = 0x02;
     //tcp_header->window_size = htons(5840);    // Window size
@@ -276,7 +326,7 @@ int generate_tcp_server_socket() {
 }
 
 size_t getpacket_length(unsigned char *buf, size_t length) {
-	size_t len = 20 + (buf[0] & 0xff);
+	size_t len = 40 + (buf[0] & 0xff);
 	if(len > length - 1) len = length - 1;
 	return len;
 }
@@ -297,14 +347,17 @@ void fuzz_tcp_packets(unsigned char* packets, size_t length) {
 	if (clientsock < 0) {
 		printf("socket error (%s)\n", lkl_strerror(clientsock));
 	}
-	char send_packet[1024];
+	int one = 1;
+	lkl_sys_setsockopt(clientsock, LKL_IPPROTO_IP, LKL_IP_HDRINCL, &one, sizeof(one));
+
+	char send_packet[4096];
 	int start = 0;
 	unsigned int ACK_NUMBERS[65536] = { 0 };
 	unsigned int SYN_NUMBER = 0;
 
 	while(length > 0) {
 		// ++++ PREPARE PACKET
-		memset(send_packet, 0, 1024);
+		memset(send_packet, 0, 4096);
 		int len = getpacket_length(packets, length);
 		//printf("%d \t%d\t%d\n", start, length, len); // len = 0x0 often, it then does 2 bytes for one useless packet, maybe minimal 20 bytes otherwise ignore?
 		memcpy(send_packet, packets + 1 + start, len);
@@ -312,12 +365,20 @@ void fuzz_tcp_packets(unsigned char* packets, size_t length) {
 		start = start + len + 1;
 
 		// ++++ SEND PACKET
-		if(len < 20) len = 20;  // minimum TCP packet size
-		tcp_fix_packet((struct tcp_header *)send_packet, len, ACK_NUMBERS, SYN_NUMBER);
-		memcpy(&SYN_NUMBER, send_packet + 4, 4);
-		SYN_NUMBER = ntohl(SYN_NUMBER);
+		if(len < 40) len = 40;  // minimum TCP packet size
+		int ip_length = ip_fix_packet((struct ip_header *)send_packet, len);
+		int ip_protocol = ip_get_protocol((struct ip_header *)send_packet);
+		if(ip_protocol == 6) {
+			tcp_fix_packet((struct tcp_header *)(send_packet + ip_length), len - ip_length, ACK_NUMBERS, SYN_NUMBER);
+			memcpy(&SYN_NUMBER, send_packet + ip_length + 4, 4);
+			SYN_NUMBER = ntohl(SYN_NUMBER);
+		}
+		if(ip_protocol == 2) {
+			igmp_fix_packet((struct igmp_header *)(send_packet + ip_length), len - ip_length);
+		}
+
 		//printf("--- SEND ---\n");
-		//print_tcp_ascii((struct tcp_header *)send_packet);
+		//print_tcp_ascii((struct tcp_header *)(send_packet + ip_length));
 		ret = lkl_sys_sendto(clientsock, send_packet, len, 0, (struct lkl_sockaddr *)&server_addr, sizeof(server_addr));
 		if (ret < 0) {
 			printf("sendto error (%s)\n", lkl_strerror(ret));
