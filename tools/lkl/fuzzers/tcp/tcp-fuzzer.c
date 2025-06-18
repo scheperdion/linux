@@ -39,6 +39,22 @@ struct ip_header {
     uint32_t dest_ip;            // Destination IP address
 } __attribute__((packed));
 
+// Structure for the ICMP header
+struct icmp_header {
+    uint8_t  type;       // ICMP type (e.g., 8 = Echo Request)
+    uint8_t  code;       // ICMP code (e.g., 0 for Echo Request)
+    uint16_t checksum;   // Checksum over header + data
+
+    union {
+        struct {
+            uint16_t id;
+            uint16_t sequence;
+        } echo;
+
+        uint32_t unused; // For other types
+    } rest;
+} __attribute__((packed));
+
 // Structure for the UDP header
 struct udp_header {
     uint16_t source_port;   // Source port
@@ -68,7 +84,7 @@ struct tcp_header {
     uint16_t urgent_pointer; // Urgent pointer
 } __attribute__((packed));
 
-// Pseudo header needed for TCP checksum calculation
+// Pseudo header needed for TCP/UDP checksum calculation
 struct pseudo_header {
     uint32_t src_addr;
     uint32_t dest_addr;
@@ -136,37 +152,64 @@ void igmp_fix_packet(struct igmp_header *igmp, size_t length) {
 }
 
 /*
- *
+ * 'Create' a 'valid' ICMP packet
+ */
+void icmp_fix_packet(struct icmp_header *icmp, size_t length) {
+	icmp->checksum = 0;
+	icmp->checksum = tcp_checksum(icmp, length);
+}
+
+/*
+ * 'Create' a 'valid' UDP packet
  */
 void udp_fix_packet(struct udp_header *udp, size_t length) {
 	udp->dest_port = htons(9998);
 	udp->checksum = 0;
-	udp->checksum = tcp_checksum(udp, length);
-}
-/*
- * 'Create' a 'valid' IP packet
- */
-int ip_fix_packet(struct ip_header *ip, size_t length) {
-	ip->version_ihl = (4 << 4) | 5;
-	ip->tos = 0;
-	ip->total_length = htons(length);
-	//ip->identification = htons(rand() & 0xFFFF); // random identification?
-	//ip->flags_fragment_offset = htons(0x4000); // Don't Fragment
-	ip->ttl = 64;
-	ip->protocol = 17; // TCP
-	ip->header_checksum = 0; // fill in later
-	ip->source_ip = inet_addr("127.0.0.1");
-	ip->dest_ip = inet_addr("127.0.0.1");
-	ip->header_checksum = tcp_checksum(ip, ip->version_ihl & 0x0F);
-	return (ip->version_ihl & 0x0F) * 4;
+
+	struct pseudo_header psh;
+    psh.src_addr = inet_addr("127.0.0.1");
+    psh.dest_addr = inet_addr("127.0.0.1");
+    psh.placeholder = 0;
+    psh.protocol = LKL_IPPROTO_UDP;
+    psh.tcp_length = htons(length);
+
+	// Calculate UDP checksum
+    char pseudogram[sizeof(struct pseudo_header) + length];
+    memcpy(pseudogram, &psh, sizeof(struct pseudo_header));
+    memcpy(pseudogram + sizeof(struct pseudo_header), udp, length);
+    udp->checksum = tcp_checksum(pseudogram, sizeof(pseudogram));
 }
 
-int ip_get_length(struct ip_header *ip) {
+
+uint16_t ip_get_header_length(struct ip_header *ip) {
 	return (ip->version_ihl & 0x0F) * 4;
 }
 
 int ip_get_protocol(struct ip_header *ip) {
 	return ip->protocol;
+}
+
+uint16_t ip_get_total_length(struct ip_header *ip) {
+	return ntohs(ip->total_length);
+}
+
+/*
+ * 'Create' a 'valid' IP packet
+ */
+int ip_fix_packet(struct ip_header *ip, size_t length) {
+	uint8_t hl = (ip->version_ihl & 0x0F) < 5 || (ip->version_ihl & 0x0F) > 10 ? 5 : ip->version_ihl & 0x0F;
+	ip->version_ihl = (4 << 4) | hl;
+	//ip->tos = 0;
+	ip->total_length = ntohs(ip->total_length) < ip_get_header_length(ip) ? htons(ip_get_header_length(ip)) : ip->total_length;
+	//ip->identification = htons(rand() & 0xFFFF); // random identification?
+	//ip->flags_fragment_offset = htons(0x4000); // Don't Fragment
+	//ip->ttl = 64;
+	ip->protocol = 6; // 1=ICMP, 2=IGMP, 6=TCP, 17=UDP
+	ip->header_checksum = 0; // fill in later
+	ip->source_ip = inet_addr("127.0.0.1");
+	ip->dest_ip = inet_addr("127.0.0.1");
+	ip->header_checksum = tcp_checksum(ip, ip->version_ihl & 0x0F);
+	return (ip->version_ihl & 0x0F) * 4;
 }
 
 /*
@@ -179,14 +222,13 @@ void tcp_fix_packet(struct tcp_header * tcp_header, size_t length, unsigned int 
 //    if(syn_number != 0) {
 //		tcp_header->seq_number = htonl(syn_number + 1);
 //    }
-    if(ack_number != 0) {
+    if(ack_number[ntohs(tcp_header->source_port)] != 0) {
 		tcp_header->ack_number = htonl(ack_number[ntohs(tcp_header->source_port)] + 1);
     }
-    int l = length > 60 ? 60 : length;                       // maximum size of tcp header (includes options)
-    tcp_header->data_offset = ((l / 4) << 4);                // start of data (end of tcp header)
+    //int l = length > 60 ? 60 : length;                       // maximum size of tcp header (includes options)
+    //tcp_header->data_offset = ((l / 4) << 4);                // start of data (end of tcp header)
     //tcp_header->flags = 0x02;
     //tcp_header->window_size = htons(5840);    // Window size
-    tcp_header->checksum = 0;               // Initial checksum
     //tcp_header->urgent_pointer = 0;             // Urgent pointer
 
     // Pseudo header for TCP checksum
@@ -197,6 +239,7 @@ void tcp_fix_packet(struct tcp_header * tcp_header, size_t length, unsigned int 
     psh.tcp_length = htons(length);
 
     // Calculate TCP checksum
+    tcp_header->checksum = 0;               // Initial checksum
     char pseudogram[sizeof(struct pseudo_header) + length];
     memcpy(pseudogram, &psh, sizeof(struct pseudo_header));
     memcpy(pseudogram + sizeof(struct pseudo_header), tcp_header, length);
@@ -298,15 +341,16 @@ void read_tcp_state() {
 void* terminate_connection(void* arg) {
 	// https://blog.cloudflare.com/this-is-strictly-a-violation-of-the-tcp-specification/
 	int client_sock = *(int*)arg;
-	usleep(50);
 	char buf[4096] = {0};
+	usleep(50);
 	int len = lkl_sys_recv(client_sock, buf, 4096, MSG_DONTWAIT);
-	if (len > 0) {
+	while (len > 0) {
 	    // Data is available
 	    printf("Received %d bytes\n", len);
-	    hexdump(buf, len);
+	    hexdump(buf, len < 64 ? len : 64);
+	    len = lkl_sys_recv(client_sock, buf, 4096, MSG_DONTWAIT);
 	}
-	else if (len == 0) {
+	if (len == 0) {
 		printf("FIN received!\n");
 	}
 	else if( len == -ECONNRESET){
@@ -371,7 +415,7 @@ int generate_udp_server_socket() {
 }
 
 size_t getpacket_length(unsigned char *buf, size_t length) {
-	size_t len = 40 + (buf[0] & 0xff);
+	size_t len = 40 + (buf[0] & 0xff); // TODO: one char is one byte, don't need to '& 0xff?
 	if(len > length - 1) len = length - 1;
 	return len;
 }
@@ -396,15 +440,15 @@ void fuzz_tcp_packets(unsigned char* packets, size_t length) {
 	int one = 1;
 	lkl_sys_setsockopt(clientsock, LKL_IPPROTO_IP, LKL_IP_HDRINCL, &one, sizeof(one));
 
-	char send_packet[4096];
+	char send_packet[65536];
 	int start = 0;
 	unsigned int ACK_NUMBERS[65536] = { 0 };
 	unsigned int SYN_NUMBER = 0;
 
 	while(length > 0) {
 		// ++++ PREPARE PACKET
-		memset(send_packet, 0, 4096);
-		int len = getpacket_length(packets, length);
+		memset(send_packet, 0x61, 65535);
+		int len = getpacket_length(packets + start, length);
 		//printf("%d \t%d\t%d\n", start, length, len); // len = 0x0 often, it then does 2 bytes for one useless packet, maybe minimal 20 bytes otherwise ignore?
 		memcpy(send_packet, packets + 1 + start, len);
 		length = length - len - 1;
@@ -412,23 +456,29 @@ void fuzz_tcp_packets(unsigned char* packets, size_t length) {
 
 		// ++++ SEND PACKET
 		if(len < 40) len = 40;  // minimum TCP packet size
-		int ip_length = ip_fix_packet((struct ip_header *)send_packet, len);
+		int ip_header_length = ip_fix_packet((struct ip_header *)send_packet, len);
+		int ip_total_length = ip_get_total_length((struct ip_header *)send_packet);
 		int ip_protocol = ip_get_protocol((struct ip_header *)send_packet);
 		if(ip_protocol == 6) {
-			tcp_fix_packet((struct tcp_header *)(send_packet + ip_length), len - ip_length, ACK_NUMBERS, SYN_NUMBER);
-			memcpy(&SYN_NUMBER, send_packet + ip_length + 4, 4);
-			SYN_NUMBER = ntohl(SYN_NUMBER);
+			//printf("%d %d\n", ip_header_length, ip_total_length);
+			tcp_fix_packet((struct tcp_header *)(send_packet + ip_header_length), ip_total_length - ip_header_length, ACK_NUMBERS, SYN_NUMBER);
+//			memcpy(&SYN_NUMBER, send_packet + ip_header_length + 4, 4);
+//			SYN_NUMBER = ntohl(SYN_NUMBER);
 		}
 		if(ip_protocol == 2) {
-			igmp_fix_packet((struct igmp_header *)(send_packet + ip_length), len - ip_length);
+			igmp_fix_packet((struct igmp_header *)(send_packet + ip_header_length), ip_total_length - ip_header_length);
 		}
 		if(ip_protocol == 17) {
-			udp_fix_packet((struct udp_header *)(send_packet + ip_length), len - ip_length);
+			udp_fix_packet((struct udp_header *)(send_packet + ip_header_length), ip_total_length - ip_header_length);
+		}
+		if(ip_protocol == 1) {
+			icmp_fix_packet((struct icmp_header *)(send_packet + ip_header_length), ip_total_length - ip_header_length);
 		}
 
 		//printf("--- SEND ---\n");
-		//print_tcp_ascii((struct tcp_header *)(send_packet + ip_length));
-		ret = lkl_sys_sendto(clientsock, send_packet, len, 0, (struct lkl_sockaddr *)&server_addr, sizeof(server_addr));
+		//print_tcp_ascii((struct tcp_header *)(send_packet + ip_header_length));
+		usleep(1);
+		ret = lkl_sys_sendto(clientsock, send_packet, ip_total_length, 0, (struct lkl_sockaddr *)&server_addr, sizeof(server_addr));
 		if (ret < 0) {
 			printf("sendto error (%s)\n", lkl_strerror(ret));
 		}
@@ -439,23 +489,23 @@ void fuzz_tcp_packets(unsigned char* packets, size_t length) {
 		memset(recv_packet, 0, 1024);
 		while(errors == 0) {
 			memset(recv_packet, 0, 1024);
+			usleep(1);
 			ret = lkl_sys_recv(clientsock, recv_packet, sizeof(recv_packet), LKL_MSG_DONTWAIT);
 			if (ret < 0) {
 				//printf("recv error (%s)\n", lkl_strerror(ret));
 				errors++;
 			} else {
-				int ip_length = ip_get_length((struct ip_header *) recv_packet);
-				uint16_t src_port = ntohs(((struct tcp_header *) (recv_packet + ip_length))->source_port);
-				uint16_t dst_port = ntohs(((struct tcp_header *) (recv_packet + ip_length))->dest_port);
-				uint32_t seq = ntohl(((struct tcp_header *) (recv_packet + ip_length))->seq_number);
+				int ip_header_length = ip_get_header_length((struct ip_header *) recv_packet);
+				uint16_t src_port = ntohs(((struct tcp_header *) (recv_packet + ip_header_length))->source_port);
+				uint16_t dst_port = ntohs(((struct tcp_header *) (recv_packet + ip_header_length))->dest_port);
+				uint32_t seq = ntohl(((struct tcp_header *) (recv_packet + ip_header_length))->seq_number);
 				if(src_port == 9999) { // if packet was received from listener
 					ACK_NUMBERS[dst_port] = seq;  // set ack number to use next time
 					//printf("--- RECV ---\n");
-					//print_tcp_ascii((struct tcp_header *) (recv_packet + 20));
+					//print_tcp_ascii((struct tcp_header *) (recv_packet + ip_header_length));
 				}
 			}
 		}
-
 		// ++++ TCP ACCEPT CONNECTIONS (we are non-blocking so this is OK)
 		struct lkl_sockaddr_in client_addr;
 		int addr_size = sizeof(client_addr);
@@ -482,9 +532,9 @@ void fuzz_tcp_packets(unsigned char* packets, size_t length) {
 	clients_size = 0;
 	// close listening socket
 	ret = lkl_sys_close(server_sock);
-	if(ret < 0) { printf("server socket close fail\n"); exit(1); }
+	if(ret < 0) { printf("TCP server socket close fail\n"); exit(1); }
 	ret = lkl_sys_close(udp_sock);
-	if(ret < 0) { printf("server socket close fail\n"); exit(1); }
+	if(ret < 0) { printf("UDP server socket close fail\n"); exit(1); }
 	//printf("DONE\n\n");
 }
 
