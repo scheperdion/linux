@@ -616,7 +616,9 @@ void __asan_set_shadow_f5(const void *addr, ssize_t size);
 void __asan_set_shadow_f8(const void *addr, ssize_t size);
 
 void *__asan_memset(void *addr, int c, ssize_t len);
+#ifdef __HAVE_ARCH_MEMMOVE
 void *__asan_memmove(void *dest, const void *src, ssize_t len);
+#endif
 void *__asan_memcpy(void *dest, const void *src, ssize_t len);
 
 void __hwasan_load1_noabort(void *);

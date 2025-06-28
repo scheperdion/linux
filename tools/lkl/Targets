@@ -37,4 +37,7 @@ endif
 
 # LKL fuzzers
 fuzzers-y += fuzzers/hid/hid-fuzzer
-
+fuzzers-y += fuzzers/tcp/tcp-fuzzer
+fuzzers-y += fuzzers/outoftree/outoftree-fuzzer
+fuzzers-y += fuzzers/arbitraryfunction/arbitraryfunction-fuzzer
+fuzzers-y += fuzzers/wifi/wifi-fuzzer
